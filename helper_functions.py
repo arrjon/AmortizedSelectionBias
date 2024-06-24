@@ -1,12 +1,33 @@
+from typing import Union
+
 import numpy as np
 import pandas as pd
-from typing import Optional, Union
-
-from tensorflow.keras.layers import LSTM, Dense
+from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri, ListVector
 
 
-def normalize_household_data(df: pd.DataFrame, seed: int = 0, minimal_length: int = 0,
-                             return_list: bool = False) -> Union[np.ndarray, list]:
+def dict_to_named_list(dct):
+    # function taken from pyabc
+    if (
+        isinstance(dct, dict)
+        or isinstance(dct, pd.core.series.Series)
+    ):
+        dct = dict(dct.items())
+        # convert numbers, numpy arrays and pandas dataframes to builtin
+        # types before conversion (see rpy2 #548)
+        with conversion.localconverter(
+            default_converter + pandas2ri.converter + numpy2ri.converter
+        ):
+            for key, val in dct.items():
+                dct[key] = conversion.py2rpy(val)
+        r_list = ListVector(dct)
+        return r_list
+    return dct
+
+
+def normalize_household_data(df: pd.DataFrame,
+                             minimal_length: int,
+                             return_list: bool,
+                             seed: int = 0) -> Union[np.ndarray, list]:
     """
     Normalizes the household data and returns it as a numpy array or list.
     Patients in a household are order by event date.
@@ -14,13 +35,13 @@ def normalize_household_data(df: pd.DataFrame, seed: int = 0, minimal_length: in
     Parameters
     ----------
     df : pd.DataFrame - the household data
-    seed : int - random seed for shuffling the households
     minimal_length : int - the minimal length of the household data: in long format, this is the total sequence length,
                     in list format, this is the minimal number of people in a household. In both cases, we use zero
                     padding at the beginning of the sequence to reach this length.
     return_list : bool - if True, returns a list of households each of size (time x features)
                     (or numpy array if minimal_length > 0), otherwise a numpy array in the format
                     (features x time) where households get an id as feature
+    seed : int - random seed for shuffling the households
     """
     df = df.copy()
     all_households = []
@@ -96,33 +117,3 @@ def normalize_household_data(df: pd.DataFrame, seed: int = 0, minimal_length: in
                                          all_households,
                                          ], axis=1)
     return all_households
-
-
-def batch_uniform_prior(lb: np.ndarray,
-                        ub: np.ndarray,
-                        batch_size: int,
-                        transform: Optional[str] = None) -> np.ndarray:
-    """
-    Samples from the prior 'batch_size' times.
-    ----------
-
-    Arguments:
-    lb : np.ndarray - lower bounds of the uniform distribution on linear scale
-    ub: np.ndarray - upper bounds of the uniform distribution on linear scale
-    batch_size : int - number of samples to draw from the prior
-    ----------
-
-    Output:
-    p_samples : np.ndarray of shape (batch size, parameter dimension) -- the samples batch of parameters
-    """
-    if transform is None:
-        prior_batch = np.random.uniform(low=lb, high=ub, size=(batch_size, lb.size))
-        return prior_batch
-    elif transform == 'log10':
-        prior_batch = np.random.uniform(low=np.power(10, lb), high=np.power(10, ub), size=(batch_size, lb.size))
-        return np.log10(prior_batch)
-    elif transform == 'log':
-        prior_batch = np.random.uniform(low=np.exp(lb), high=np.exp(ub), size=(batch_size, lb.size))
-        return np.log(prior_batch)
-    else:
-        raise ValueError(f'Invalid transformation {transform}')
