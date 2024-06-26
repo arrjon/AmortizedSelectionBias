@@ -1,5 +1,3 @@
-import logging
-
 import numpy as np
 from rpy2.robjects import r, conversion, pandas2ri
 
@@ -29,8 +27,6 @@ def simulator(params: np.ndarray,
     par_dict = dict(zip(param_names, params))
     # update dict with fixed parameters
     par_dict.update({'variant': variant, 'selection_procedure': selection_procedure})
-    if selection_procedure == "random":
-        logging.warning(f"random might not work with the current implementation, be careful")
 
     # minimal_length should be the maximal length of the time series in the real data set
     if par_dict['variant'] == "alpha":
