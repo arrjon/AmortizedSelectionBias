@@ -41,5 +41,5 @@ def simulator(params: np.ndarray,
     # convert to pandas dataframe
     sim_data_full = conversion.rpy2py(sim_data_r)
     # normalize data and return as numpy array
-    sim_data_norm = normalize_household_data(sim_data_full, minimal_length=minimal_length, return_list=True)
+    sim_data_norm = normalize_household_data(sim_data_full, minimal_length=minimal_length)
     return sim_data_norm
