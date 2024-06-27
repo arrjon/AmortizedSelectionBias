@@ -75,8 +75,6 @@ def normalize_household_data(df: pd.DataFrame,
     df.loc[df['date_sympt'] == 1000, 'date_sympt_norm'] = 1  # when sorting it stays at the end
     df['end_followup_norm'] = df['end_followup'] / date_max
 
-    # todo: what happens if infection date is after end of follow-up?
-
     unique_households = df['id_hh'].unique()
 
     for i, id_hh in enumerate(unique_households):
