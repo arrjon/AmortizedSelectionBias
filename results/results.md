@@ -3,7 +3,7 @@
 Simulations: 
 - 128*1000 = 128.000
 - 1 epoch until batches are used up
-
+- maximum of 500 epochs (reduced for next training round to 200) -> informs cosine decay
 
 Amortizers:
 - `amortizer-sampling-bias-0`
@@ -28,3 +28,4 @@ Next steps:
 - generate more simulations (10 epochs minimum)
 - lstm with conv seems to be the best choice so far
 - log transform parameters (in configurator)
+- maybe try without early stopping
