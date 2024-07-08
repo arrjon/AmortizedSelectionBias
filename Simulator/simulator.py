@@ -23,8 +23,11 @@ def simulator(params: np.ndarray,
     :param selection_procedure: selection procedure for the households (pedcov or random)
     :return: simulated data as numpy array
     """
+    # transform parameters to correct scale
+    scaled_params = np.copy(params)
+    scaled_params[3:] = np.exp(scaled_params[3:])
     # create dict from params and param_names
-    par_dict = dict(zip(param_names, params))
+    par_dict = dict(zip(param_names, scaled_params))
     # update dict with fixed parameters
     par_dict.update({'variant': variant, 'selection_procedure': selection_procedure})
 
