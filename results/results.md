@@ -3,29 +3,36 @@
 Simulations: 
 - 128*1000 = 128.000
 - 1 epoch until batches are used up
-- maximum of 500 epochs (reduced for next training round to 200) -> informs cosine decay
+- maximum of 100 epochs -> informs cosine decay
 
 Amortizers:
-- `amortizer-sampling-bias-0`
-  - small inference network, only GRU as summary, sbc plots okay, but recovery bad for all parameters
-  - stopped after 15 epochs
+inference networks are quite large (8 layers, 4 coupling layers each)
 - `amortizer-sampling-bias-0-lstm`
-  - small inference network, only LSTM as summary, sbc plots okay, but recovery bad for all parameters
-  - not really better than GRU
-  - stopped after 23 epochs
+  - only LSTM as summary
+  - recovery bad for all parameters
+  - sbc plots okay
+  - training loss seems to have converged
 - `amortizer-sampling-bias-0-lstm-conv`
-  - LSTM with 1d-convolution as summary, sbc plots okay, but recovery bad for all parameters
-  - recovery seems a little better than before
-  - stopped after 107 epochs
-- `amortizer-sampling-bias-0-sum`
-  - sbc plots less okay
-  - stopped after 41 epochs
-- `amortizer-sampling-bias-1-lstm-conv-spec`
-  - larger inference network, seems not to be able to learn
-  - stopped after 37 epochs
+  - LSTM with 1d-convolution as summary
+  - recovery seems a little better than before (at least for some parameters), but still bad
+  - sbc plots okay
+  - training loss does not seem to have converged yet (why did it stop?)
+ - `amortizer-sampling-bias-0-lstm-conv-attention`
+  - LSTM with 1d-convolution and attention over households as summary
+  - recovery seems a little better than before (at least for some parameters), but still bad
+  - sbc plots okay
+  - training loss seems to have converged
+ - `amortizer-sampling-bias-0-lstm-conv-attention-sum`
+  - LSTM with 1d-convolution and attention over households as summary, sum pooling instead of max pooling
+  - recovery the best so far?! (at least for some parameters), but still bad
+  - sbc plots okay
+  - training loss seems to have converged (but was way higher in the beginning)
+ - `amortizer-sampling-bias-0-lstm-conv-attention-no-decay`
+  - LSTM with 1d-convolution and attention over households as summary, no cosine decay of the learning rate
+  - recovery bad for all parameters
+  - sbc plots okay
+  - training loss seems to have converged
 
 Next steps:
 - generate more simulations (10 epochs minimum)
-- lstm with conv seems to be the best choice so far
-- log transform parameters (in configurator)
-- maybe try without early stopping
+- attention seems to improve things, also sum pooling instead of max pooling
