@@ -1,3 +1,4 @@
+from typing import Optional
 import numpy as np
 from rpy2.robjects import r, conversion, pandas2ri
 
@@ -15,20 +16,32 @@ param_names = ['alpha', 'beta', 'delta',
 
 def simulator(params: np.ndarray,
               variant: str = "alpha",
-              selection_procedure: str = "pedcov") -> np.ndarray:
+              selection_procedure: str = "pedcov",
+              fixed_parameters: Optional[dict] = None) -> np.ndarray:
     """
     Simulate data with given parameters and reformat it to a numpy array.
     :param params: parameters for the simulation
     :param variant: variant of the virus (alpha or omicron)
     :param selection_procedure: selection procedure for the households (pedcov or random)
+    :param fixed_parameters: fixed parameters for the simulation
     :return: simulated data as numpy array
     """
     # transform parameters to correct scale
-    scaled_params = np.copy(params)
-    scaled_params[3:] = np.exp(scaled_params[3:])
-    # create dict from params and param_names
-    par_dict = dict(zip(param_names, scaled_params))
-    # update dict with fixed parameters
+    un_scaled_params = np.copy(params)
+    # create dict from param_names, params might have different length
+    par_dict = {}
+    p_i = 0
+    for name in param_names:
+        if fixed_parameters is not None and name in fixed_parameters:
+            par_dict.update({name: fixed_parameters[name]})
+        # all parameters starting with mu are log transformed, fixed parameters are not transformed
+        elif name.startswith('mu'):
+            par_dict.update({name: np.exp(un_scaled_params[p_i])})
+            p_i += 1
+        else:
+            par_dict.update({name: un_scaled_params[p_i]})
+            p_i += 1
+    # update dict with fixed hyperparameters
     par_dict.update({'variant': variant, 'selection_procedure': selection_procedure})
 
     # minimal_length should be the maximal length of the time series in the real data set

@@ -325,14 +325,21 @@ simulate_and_reformat <- function(par=NULL, id=1) {
   
   # convert list
   par <- list(
-    "alpha" = par$alpha,
-    "beta" = par$beta,
-    "delta" = par$delta,
-    "mu_inf" = c(SC = par$mu_inf_SC, SA = par$mu_inf_SA, 
-                 AI = par$mu_inf_AI, AC = par$mu_inf_AC, 
-                 AA = par$mu_inf_AA),
-    "mu_susc" = c(C = par$mu_susc_C, A = par$mu_susc_A),
-    "mu_protect" = c(acq = par$mu_protect_acq, transm = par$mu_protect_transm)
+    "alpha" = par$alpha,  # risk of infection in the community
+    "beta" = par$beta,  # baseline transmission rate  (beta / (household size / 4)^delta)
+    "delta" = par$delta,  # baseline transmission rate (beta / (household size / 4)^delta)
+    # relative infectiousness by age and symptomatic status
+    "mu_inf" = c(SC = par$mu_inf_SC, SA = par$mu_inf_SA,
+                 # symptomatic child, symptomatic adult
+                 AI = par$mu_inf_AI, AC = par$mu_inf_AC, AA = par$mu_inf_AA),
+                 # asymptomatic infant, asymptomatic child, asymptomatic adult
+    "mu_susc" = c(C = par$mu_susc_C, A = par$mu_susc_A),  # relative susceptibility by age (child, adult)
+    "mu_protect" = c(acq = par$mu_protect_acq,  # relative susceptibility by protection
+    transm = par$mu_protect_transm)  # relative infectiousness by protection
+
+    # bias in study:
+    # - overestimation of mu_inf_SA, mu_inf_AA (infectiousness of adults)
+    # - underestimation of mu_susc_A (susceptibility of adults)
   )
   
   sim_data_alpha <- data_simulation(variant, par, verbose=F)
