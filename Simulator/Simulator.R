@@ -8,15 +8,25 @@ data_simulation <- function(variant=NULL, par=NULL, verbose=F) {
   d <- read.table(paste0("Simulator/pedcovid_data_structure_", variant, ".txt"), header=T)
   
   d <- d[rep(rep(1:nrow(d),50)),] # duplicate database
-  d <- group_by(d, id_hh, id_patient) %>%
-    mutate(id_rep = row_number(), .after="id_hh") %>%
+  #d <- group_by(d, id_hh, id_patient) %>%
+  #  mutate(id_rep = row_number(), .after="id_hh") %>%
+  #  ungroup() %>%
+  #  mutate(id_hh = as.numeric(str_extract(id_hh, "[0-9]*"))) %>%
+  #  mutate(id_patient=row_number()) %>%
+  #  group_by(id_hh, id_rep) %>%
+  #  arrange(id_hh, .by_group = T) %>%
+  #  mutate(test = cur_group_id(), .after="id_rep") %>%
+  #  mutate(id_hh = paste0(cur_group_id(), "-", str_sub(variant,1,1))) %>%
+  #  ungroup()
+  d <- d %>%
+    group_by(id_hh, id_patient) %>%
+    mutate(id_rep = row_number(), .after = "id_hh") %>%
     ungroup() %>%
-    mutate(id_hh = as.numeric(str_extract(id_hh, "[0-9]*"))) %>%
-    mutate(id_patient=row_number()) %>%
+    mutate(id_patient = row_number()) %>%
     group_by(id_hh, id_rep) %>%
-    arrange(id_hh, .by_group = T) %>%
-    mutate(test = cur_group_id(), .after="id_rep") %>%
-    mutate(id_hh = paste0(cur_group_id(), "-", str_sub(variant,1,1))) %>%
+    arrange(id_hh, .by_group = TRUE) %>%
+    mutate(test = cur_group_id(), .after = "id_rep") %>%
+    mutate(id_hh = paste0(id_hh, "-", id_rep)) %>%
     ungroup()
   
   delayDist <- readRDS(paste0("Simulator/Delays_",variant,".rds"))

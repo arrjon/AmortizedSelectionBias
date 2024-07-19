@@ -1,5 +1,7 @@
 from typing import Union
 
+import os
+import pickle
 import numpy as np
 import pandas as pd
 from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri, ListVector
@@ -74,6 +76,7 @@ def normalize_household_data(df: pd.DataFrame,
     df.loc[df['date_sympt'] != 1000, 'date_sympt_norm'] = df.loc[df['date_sympt'] != 1000, 'date_sympt'] / date_max
     df.loc[df['date_sympt'] == 1000, 'date_sympt_norm'] = 1  # when sorting it stays at the end
     df['end_followup_norm'] = df['end_followup'] / date_max
+    #df.loc[df['date_sympt'] == 1000, 'date_sympt_norm'] = df.loc[df['date_sympt'] == 1000, 'end_followup_norm']  # todo: change to that?
 
     unique_households = df['id_hh'].unique()
 
@@ -119,3 +122,52 @@ def normalize_household_data(df: pd.DataFrame,
         return np.stack([h.T for h in all_households])
     # households are returned as list since might have different lengths
     return all_households
+
+
+
+def measure_bias(true_values, estimated_values, param_names):
+    # Ensure the arrays have the correct shape
+    if true_values.shape != estimated_values.shape:
+        raise ValueError("The shape of true values and estimated values must be the same.")
+
+    n_reps, n_params = true_values.shape
+
+    results = []
+
+    for i in range(n_params):
+        if param_names[i].startswith('mu'):
+            true = np.exp(true_values[:, i])
+            est = np.exp(estimated_values[:, i])
+        else:
+            true = true_values[:, i]
+            est = estimated_values[:, i]
+
+        bias = est - true
+        percent_bias = np.where(true != 0, (bias / true) * 100, np.inf)
+        relative_bias = np.where(true != 0, bias / true, np.inf)
+        absolute_error = np.abs(bias)
+
+        results.append({
+            'Parameter': param_names[i],
+            'Mean Bias': np.mean(bias),
+            'Mean Percent Bias': np.mean(percent_bias),
+            'Mean Relative Bias': np.mean(relative_bias),
+            'Mean Absolute Error': np.mean(absolute_error),
+            'RMSE': np.sqrt(np.mean(bias ** 2))
+        })
+
+    return pd.DataFrame(results)
+
+
+def custom_loader(file_path):
+    """Uses pickle to load, but each path is folder with multiple files, each one batch"""
+    # load all files in folder
+    loaded_presimulations = []
+    for file in os.listdir(file_path):
+        with open(os.path.join(file_path, file), 'rb') as batch_file:
+            batch = pickle.load(batch_file)[0]
+            assert isinstance(batch, dict)  # only one batch per file
+            loaded_presimulations.append(batch)
+    # shuffle list, so iterations are random, only batches stay the same
+    np.random.shuffle(loaded_presimulations)
+    return loaded_presimulations
