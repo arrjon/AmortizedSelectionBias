@@ -1,7 +1,5 @@
 from typing import Union
 
-import os
-import pickle
 import numpy as np
 import pandas as pd
 from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri, ListVector
@@ -74,9 +72,9 @@ def normalize_household_data(df: pd.DataFrame,
     # date_sympt = 1000 is not infected
     date_max = 1000
     df.loc[df['date_sympt'] != 1000, 'date_sympt_norm'] = df.loc[df['date_sympt'] != 1000, 'date_sympt'] / date_max
-    df.loc[df['date_sympt'] == 1000, 'date_sympt_norm'] = 1  # when sorting it stays at the end
     df['end_followup_norm'] = df['end_followup'] / date_max
-    #df.loc[df['date_sympt'] == 1000, 'date_sympt_norm'] = df.loc[df['date_sympt'] == 1000, 'end_followup_norm']  # todo: change to that?
+    #df.loc[df['date_sympt'] == 1000, 'date_sympt_norm'] = 1  # when sorting it stays at the end
+    df.loc[df['date_sympt'] == 1000, 'date_sympt_norm'] = df.loc[df['date_sympt'] == 1000, 'end_followup_norm']
 
     unique_households = df['id_hh'].unique()
 
@@ -124,7 +122,6 @@ def normalize_household_data(df: pd.DataFrame,
     return all_households
 
 
-
 def measure_bias(true_values, estimated_values, param_names):
     # Ensure the arrays have the correct shape
     if true_values.shape != estimated_values.shape:
@@ -157,17 +154,3 @@ def measure_bias(true_values, estimated_values, param_names):
         })
 
     return pd.DataFrame(results)
-
-
-def custom_loader(file_path):
-    """Uses pickle to load, but each path is folder with multiple files, each one batch"""
-    # load all files in folder
-    loaded_presimulations = []
-    for file in os.listdir(file_path):
-        with open(os.path.join(file_path, file), 'rb') as batch_file:
-            batch = pickle.load(batch_file)[0]
-            assert isinstance(batch, dict)  # only one batch per file
-            loaded_presimulations.append(batch)
-    # shuffle list, so iterations are random, only batches stay the same
-    np.random.shuffle(loaded_presimulations)
-    return loaded_presimulations

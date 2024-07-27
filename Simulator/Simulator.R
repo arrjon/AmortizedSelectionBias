@@ -5,9 +5,11 @@ library(actuar)
 
 data_simulation <- function(variant=NULL, par=NULL, verbose=F) {
   
+  #d <- read.table(paste0("pedcovid_data_structure_", variant, ".txt"), header=T)
   d <- read.table(paste0("Simulator/pedcovid_data_structure_", variant, ".txt"), header=T)
+  n_repeat <- 50
   
-  d <- d[rep(rep(1:nrow(d),50)),] # duplicate database
+  d <- d[rep(rep(1:nrow(d),n_repeat)),] # duplicate database
   #d <- group_by(d, id_hh, id_patient) %>%
   #  mutate(id_rep = row_number(), .after="id_hh") %>%
   #  ungroup() %>%
@@ -29,7 +31,11 @@ data_simulation <- function(variant=NULL, par=NULL, verbose=F) {
     mutate(id_hh = paste0(id_hh, "-", id_rep)) %>%
     ungroup()
   
+  # extract the original household id (number before "-")
+  d <- mutate(d, id_hh_origin=sub("([0-9]+)-.*", "\\1", d$id_hh))
+  
   delayDist <- readRDS(paste0("Simulator/Delays_",variant,".rds"))
+  #delayDist <- readRDS(paste0("Delays_",variant,".rds"))
   
   #pb <- txtProgressBar(min=1, max=length(unique(d$id_hh)), style=3) # Progression bar to be drawn on console
   #message(paste("Simulating", variant, "households..."))
@@ -240,17 +246,31 @@ data_selection <- function(d, variant, method, verbose=F) {
   if(variant=="alpha") tot_hh <- 128
   else if(variant=="omicron") tot_hh <- 54
   tot_hh_a <- ceiling(tot_hh/5) # 1/5 of hh are included through asympto children
-  tot_hh_s <- tot_hh - tot_hh_a # 4/5 of hh are included through asympto children
+  tot_hh_s <- tot_hh - tot_hh_a # 4/5 of hh are included through sympto children
   if(variant=="alpha") tot_hh_inclIndex <- 88
   else if(variant=="omicron") tot_hh_inclIndex <- 44
   
   # available households
   hh <- unique(d$id_hh)
-  
+  hh_origin <- unique(d$id_hh_origin)
+
   if(method=="random") {
     
-    sel <- sample(unique(d$id_hh), tot_hh) # just sample a total number of households
-    recruit <- d[d$id_hh %in% sel,]
+    # changed selection procedure
+    # from each original household ids sample one representative
+    # group by id_hh_origin and sample one id_hh per group
+    sampled_households <- d %>%
+      group_by(id_hh_origin) %>%
+      summarise(id_hh = sample(unique(id_hh), 1)) %>%
+      ungroup()
+
+    # filter the original dataframe to keep only the sampled households
+    recruit <- d %>%
+      semi_join(sampled_households, by = c("id_hh_origin", "id_hh"))
+
+    # random sample from all of the households
+    #sel <- sample(unique(d$id_hh), tot_hh) # just sample a total number of households
+    #recruit <- d[d$id_hh %in% sel,]
     
   } else {
     recruit <- NULL
@@ -263,8 +283,22 @@ data_selection <- function(d, variant, method, verbose=F) {
     
     while(hh_s+hh_a < tot_hh) { # while there is not enough hh is the final base
       
-      u <- sample(hh, 1) # pick one randomly
+      # changed selection procedure
+      # first select an original household, then select a household from this original household
+      u_origin <- sample(hh_origin, 1) # pick one randomly from the original hh
+      # get all hh from this original hh which are still in the list of pickable hh
+      sub_d <- d[d$id_hh_origin==u_origin & d$id_hh %in% hh,]
+      # pick one hh from this list, else use also other original households
+      if (nrow(sub_d)==0) {
+        u <- sample(hh, 1) # pick one randomly
+      } 
+      else {
+        possible_hh <- unique(sub_d$id_hh)
+        u <- sample(possible_hh, 1) # pick one randomly
+      }
       
+      #u <- sample(hh, 1) # pick one randomly
+
       if(method=="pedcov") {
         
         # If inclusion case is an adult --> exclude and go to next iteration
@@ -290,10 +324,14 @@ data_selection <- function(d, variant, method, verbose=F) {
           recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
           hh_s <- hh_s+1 # increase count of sympto incl cases
           hh_inclIndex <- hh_inclIndex + 1 # increase count of incl case also index
+
+          hh_origin <- hh_origin[hh_origin!=u_origin] # Remove this hh from the list of pickable hh_origin
         } else if(d$infect_status[d$id_hh==u & d$is_incluCase==1]==2 & hh_a<tot_hh_a) { # If inclusion case is asymptomatic (and the count for this type is not full)
           recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
           hh_a <- hh_a+1 # increase count of asympto incl cases
           hh_inclIndex <- hh_inclIndex + 1 # increase count of incl case also index
+
+          hh_origin <- hh_origin[hh_origin!=u_origin] # Remove this hh from the list of pickable hh_origin
         } else not_selected <- not_selected +1 # If the count for this type of sympto status is already full --> exclude
         
         if(verbose) message(paste("sympto", hh_s, "asympto", hh_a))
@@ -306,10 +344,14 @@ data_selection <- function(d, variant, method, verbose=F) {
           recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
           hh_s <- hh_s+1 # increase count of sympto incl cases
           hh_inclNotIndex <- hh_inclNotIndex + 1 # increase count of incl case not index
+
+          hh_origin <- hh_origin[hh_origin!=u_origin] # Remove this hh from the list of pickable hh_origin
         } else if(d$infect_status[d$id_hh==u & d$is_incluCase==1]==2 & hh_a<tot_hh_a) { # If inclusion case is asymptomatic (and the count for this type is not full)
           recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
           hh_a <- hh_a+1 # increase count of asympto incl cases
           hh_inclNotIndex <- hh_inclNotIndex + 1 # increase count of incl case not index
+
+          hh_origin <- hh_origin[hh_origin!=u_origin] # Remove this hh from the list of pickable hh_origin
         } else not_selected <- not_selected +1 # If the count for this type of sympto status is already full --> exclude
         
         if(verbose) message(paste("sympto", hh_s, "asympto", hh_a))
@@ -317,14 +359,25 @@ data_selection <- function(d, variant, method, verbose=F) {
       } else not_selected <- not_selected +1 # If the count for this type of incl case / index is already full --> exclude
       
       hh <- hh[hh!=u] # Remove this hh from the list of pickable hh
-      
+
     }
   }
   
   # pedcov_recruit <- select(pedcov_recruit, id_patient, id_hh, hh_size, date_sympt, infect_status, end_followup, age, protected, age_exact)
   # write.table(pedcov_recruit, paste0("../Data/pedcovid_data_formatted_",variant,"_pedcovid.txt"), quote=F, row.names=F, col.names=F)
-  
-  return(recruit)
+
+  # randomize order of households
+  randomized_households <- recruit %>%
+    distinct(id_hh) %>%
+    mutate(random_order = sample(n()))
+
+  # join the random order back to the original dataframe
+  randomized_recruit <- recruit %>%
+    left_join(randomized_households, by = "id_hh") %>%
+    arrange(random_order) %>%
+    select(-random_order)
+
+  return(randomized_recruit)
 }
 
 simulate_and_reformat <- function(par=NULL, id=1) {
@@ -351,25 +404,34 @@ simulate_and_reformat <- function(par=NULL, id=1) {
     # - overestimation of mu_inf_SA, mu_inf_AA (infectiousness of adults)
     # - underestimation of mu_susc_A (susceptibility of adults)
   )
+  sim_data <- data_simulation(variant, par, verbose=F)
+  recruit <- data_selection(sim_data, variant, selection_procedure)
   
-  sim_data_alpha <- data_simulation(variant, par, verbose=F)
-  recruit_alpha <- data_selection(sim_data_alpha, variant, selection_procedure)
-  
-  recruit_pedcov <- rbind(mutate(recruit_alpha, "variant"=variant)) %>%
+  recruit <- rbind(mutate(recruit, "variant"=variant)) %>%
     mutate(id_hh = paste0(id_hh,"-p",id),
            id_simu = id,
-           select_process = "pedcov-like")
-  
-  sim_data <- recruit_pedcov[recruit_pedcov$variant==variant,]
+           select_process = selection_procedure)
+  #sim_data <- recruit[recruit$variant==variant,]
   
   # select columns
-  sim_data <- select(sim_data, id_patient, id_hh, hh_size, date_sympt, 
+  sim_data <- select(recruit, id_patient, id_hh, id_hh_origin, hh_size, date_sympt, 
                      infect_status, end_followup, age, protected, variant, 
                      id_simu, select_process)
   return(sim_data)
 }
 
-#test <- list("beta" = 0.2,
-#             "mu_inf" = c(SC = 1, SA= 1, AI = 1, AC = 1, AA = 1),
-#             "mu_susc" = c(C = 1, A = 1))
-#t <- simulate_and_reformat(test)
+# test <- list("alpha" = 0.1,
+#              "beta" = 0.2,
+#              "delta" = 0.3,
+#              'mu_inf_SC' = 1, 
+#              'mu_inf_SA' = 1, 
+#              'mu_inf_AI' = 1, 
+#              'mu_inf_AC' = 1, 
+#              'mu_inf_AA' = 1,
+#              'mu_susc_C' = 1, 
+#              'mu_susc_A' = 1,
+#              'mu_protect_acq'  = 0.1, 
+#              'mu_protect_transm'  = 0.8,
+#              "variant" = "alpha",
+#              "selection_procedure" = "pedcov")
+# t <- simulate_and_reformat(test)
