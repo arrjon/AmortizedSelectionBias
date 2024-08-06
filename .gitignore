@@ -2,3 +2,5 @@ presimulations
 log
 train_bayesflow.py
 amortizer
+/results_with_fixed/old/
+/Simulator/.Rhistory
