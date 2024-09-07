@@ -2,5 +2,6 @@ presimulations
 log
 train_bayesflow.py
 amortizer
+*/amortizer/amortizer-sampling-bias-0-conv-bid-MMD_fixed_large/
 /results_with_fixed/old/
 /Simulator/.Rhistory
