@@ -8,3 +8,4 @@ matplotlib~=3.9.0
 scipy~=1.13.1
 seaborn~=0.13.2
 tarp~=0.1.1
+tqdm~=4.66.4
