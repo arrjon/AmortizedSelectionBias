@@ -28,28 +28,29 @@ fixed_parameters_omicron = {
 
 
 def simulator(params: np.ndarray,
-              variant_selection: list[str],
+              selection_procedure: str,
+              variant: str,
               minimal_length: int = 9,
               fix_parameters: bool = True) -> np.ndarray:
     """
     Simulate data with given parameters and reformat it to a numpy array.
     :param params: parameters for the simulation
-    :param variant_selection: variant (alpha, omicron) and selection procedure (pedcov or random) for the households
-    :param minimal_length: minimal length of the time series in the data set
+    :param selection_procedure: selection procedure for the simulation (pedcov or random)
+    :param variant: variant of the simulation (alpha or omicron)
+    :param minimal_length: minimal length of the data
     :param fix_parameters: if True, fixed parameters are used
     :return: simulated data as numpy array
     """
-    variant, selection_procedure = variant_selection
+    if variant == "alpha":
+        fixed_parameters = fixed_parameters_alpha
+    elif variant == "omicron":
+        fixed_parameters = fixed_parameters_omicron
+    else:
+        raise ValueError("Variant not supported. Must be 'alpha' or 'omicron'.")
+
     # transform parameters to correct scale
     un_scaled_params = np.copy(params)
-    if fix_parameters:
-        if variant == "alpha":
-            fixed_parameters = fixed_parameters_alpha
-        elif variant == "omicron":
-            fixed_parameters = fixed_parameters_omicron
-        else:
-            raise ValueError("Variant not supported. Must be 'alpha' or 'omicron'.")
-    else:
+    if not fix_parameters:
         fixed_parameters = None
     # create dict from param_names, params might have different length
     par_dict = {}
