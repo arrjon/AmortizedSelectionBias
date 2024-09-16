@@ -1,4 +1,3 @@
-from typing import Optional
 import numpy as np
 from rpy2.robjects import r, conversion, pandas2ri
 
@@ -13,21 +12,45 @@ param_names = ['alpha', 'beta', 'delta',
                'mu_susc_C', 'mu_susc_A',
                'mu_protect_acq', 'mu_protect_transm']
 
+fixed_parameters_alpha = {
+    "alpha": 0.001,
+    "delta": 1.3,
+    "mu_protect_acq": 0.8,
+    "mu_protect_transm": 1.
+}
+
+fixed_parameters_omicron = {
+    "alpha": 0.002,
+    "delta": 1.4,
+    "mu_protect_acq": 0.8,
+    "mu_protect_transm": 0.8
+}
+
 
 def simulator(params: np.ndarray,
-              variant: str = "alpha",
-              selection_procedure: str = "pedcov",
-              fixed_parameters: Optional[dict] = None) -> np.ndarray:
+              variant_selection: list[str],
+              minimal_length: int = 9,
+              fix_parameters: bool = True) -> np.ndarray:
     """
     Simulate data with given parameters and reformat it to a numpy array.
     :param params: parameters for the simulation
-    :param variant: variant of the virus (alpha or omicron)
-    :param selection_procedure: selection procedure for the households (pedcov or random)
-    :param fixed_parameters: fixed parameters for the simulation
+    :param variant_selection: variant (alpha, omicron) and selection procedure (pedcov or random) for the households
+    :param minimal_length: minimal length of the time series in the data set
+    :param fix_parameters: if True, fixed parameters are used
     :return: simulated data as numpy array
     """
+    variant, selection_procedure = variant_selection
     # transform parameters to correct scale
     un_scaled_params = np.copy(params)
+    if fix_parameters:
+        if variant == "alpha":
+            fixed_parameters = fixed_parameters_alpha
+        elif variant == "omicron":
+            fixed_parameters = fixed_parameters_omicron
+        else:
+            raise ValueError("Variant not supported. Must be 'alpha' or 'omicron'.")
+    else:
+        fixed_parameters = None
     # create dict from param_names, params might have different length
     par_dict = {}
     p_i = 0
@@ -35,22 +58,15 @@ def simulator(params: np.ndarray,
         if fixed_parameters is not None and name in fixed_parameters:
             par_dict.update({name: fixed_parameters[name]})
         # all parameters starting with mu are log transformed, fixed parameters are not transformed
-        elif name.startswith('mu'):
+        elif name.startswith('mu') or name == 'beta':
+        #elif name.startswith('mu'):
             par_dict.update({name: np.exp(un_scaled_params[p_i])})
             p_i += 1
         else:
             par_dict.update({name: un_scaled_params[p_i]})
             p_i += 1
-    # update dict with fixed hyperparameters
-    par_dict.update({'variant': variant, 'selection_procedure': selection_procedure})
-
-    # minimal_length should be the maximal length of the time series in the real data set
-    if par_dict['variant'] == "alpha":
-        minimal_length = 8
-    elif par_dict['variant'] == "omicron":
-        minimal_length = 9
-    else:
-        raise ValueError("Variant not supported. Must be 'alpha' or 'omicron'.")
+    # update dict with fixed hyperparameters, make sure these are strings
+    par_dict.update({'variant': str(variant), 'selection_procedure': str(selection_procedure)})
 
     # simulate data
     sim_data_r = model_r(dict_to_named_list(par_dict))
