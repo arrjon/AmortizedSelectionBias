@@ -46,7 +46,9 @@ def simulator(params: np.ndarray,
     elif variant == "omicron":
         fixed_parameters = fixed_parameters_omicron
     else:
-        raise ValueError("Variant not supported. Must be 'alpha' or 'omicron'.")
+        raise ValueError(f"Variant '{variant}' not supported. Must be 'alpha' or 'omicron'.")
+    if selection_procedure not in ['pedcov', 'random']:
+        raise ValueError(f"Selection procedure '{selection_procedure}' not supported. Must be 'pedcov' or 'random'.")
 
     # transform parameters to correct scale
     un_scaled_params = np.copy(params)
