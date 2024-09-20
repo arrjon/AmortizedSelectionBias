@@ -269,7 +269,7 @@ data_selection <- function(d, variant, method, verbose=F) {
     #  semi_join(sampled_households, by = c("id_hh_origin", "id_hh"))
 
     # random sample from all of the households
-    sel <- sample(unique(d$id_hh), tot_hh) # just sample a total number of households
+    sel <- sample(hh, tot_hh) # just sample a total number of households
     recruit <- d[d$id_hh %in% sel,]
     
   } else {
