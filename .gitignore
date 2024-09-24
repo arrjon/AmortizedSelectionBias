@@ -1,7 +1,5 @@
 presimulations
 log
-train_bayesflow.py
+outdated
 train_bayesflow_both.py
-amortizer/old/
-/results_with_fixed/old/
 /Simulator/.Rhistory
