@@ -1,6 +1,7 @@
 presimulations
 log
 outdated
-train_bayesflow_both.py
+train_bayesflow.py
+train_bayesflow_joint.py
 /Simulator/.Rhistory
 /results_both_variants/real data
