@@ -111,7 +111,7 @@ def sampling_parameter_cis(
                         [_median, _median],
                         [npar - _step, npar + _step],
                         "k-",
-                        label="MCMC median",
+                        label="Median",
                     )
 
             # increment height of boxes
