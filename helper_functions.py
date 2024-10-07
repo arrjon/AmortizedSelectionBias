@@ -53,9 +53,11 @@ def encode_row(row):
     return encoded
 
 
-def normalize_household_data(df: pd.DataFrame,
-                             minimal_length: int,
-                             use_one_hot_encoding: bool = True) -> Union[np.ndarray, list]:
+def normalize_household_data(
+        df: pd.DataFrame,
+        minimal_length: int,
+        use_one_hot_encoding: bool = True
+) -> Union[np.ndarray, list]:
     """
     Normalizes the household data and returns it as a numpy array or list.
     Patients in a household are order by event date.
@@ -158,12 +160,14 @@ def measure_bias(true_values, estimated_values, param_names):
     return pd.DataFrame(results)
 
 
-def plot_attention_scores(attention_scores: np.ndarray,
-                          valid_data: Optional[np.ndarray] = None,
-                          batch_idx: Optional[int] = None,
-                          head_idx: Optional[int] = None,
-                          group_idx: Optional[int] = None,
-                          normalize: bool = True):
+def plot_attention_scores(
+        attention_scores: np.ndarray,
+        valid_data: Optional[np.ndarray] = None,
+        batch_idx: Optional[int] = None,
+        head_idx: Optional[int] = None,
+        group_idx: Optional[int] = None,
+        normalize: bool = True
+):
     """
     Plots a heatmap of attention scores for a specific batch, head or group.
 
@@ -177,7 +181,6 @@ def plot_attention_scores(attention_scores: np.ndarray,
         Index of the group to visualize.
     """
     # Extract the scores for the given batch, head, and group
-
     if group_idx is None:
         scores = tf.reduce_mean(attention_scores, axis=3)  # Average over groups
     else:
@@ -195,8 +198,9 @@ def plot_attention_scores(attention_scores: np.ndarray,
     if normalize:
         scores = (scores - np.min(scores)) / (np.max(scores) - np.min(scores))
 
-    first_inv_idx = None
+    first_inv_idx, time_labels = None, None
     if valid_data is not None and batch_idx is not None and group_idx is not None:
+        time_labels = valid_data['sim_data'][batch_idx, group_idx, :, 0]  # Extract time step label
         first_inv_idx = np.where(valid_data['sim_data'][batch_idx, group_idx, :, 0] != 0)[0][0]
 
     # Plot the heatmap
@@ -216,4 +220,98 @@ def plot_attention_scores(attention_scores: np.ndarray,
         plt.hlines(y=first_inv_idx - 0.5, xmin=first_inv_idx - 0.5, xmax=scores.shape[0] - 0.5,
                    color='red', linestyle='--', label='First 1')
 
+    # Set time step labels if available
+    if time_labels is not None:
+        plt.xticks(ticks=np.arange(len(time_labels)), labels=time_labels, rotation=45, ha='right')
+        plt.yticks(ticks=np.arange(len(time_labels)), labels=time_labels)
+
     plt.show()
+
+
+def plot_attention_scores_plotly(
+        attention_scores: np.ndarray,
+        valid_data: Optional[np.ndarray] = None,
+        batch_idx: Optional[int] = None,
+        head_idx: Optional[int] = None,
+        group_idx: Optional[int] = None,
+        normalize: bool = True
+):
+    """
+    Plots a heatmap of attention scores for a specific batch, head, or group using Plotly.
+
+    Parameters:
+    -----------
+    attention_scores : np.ndarray
+        Attention scores tensor of shape (batch_size, num_heads, n_time_steps, n_groups, n_time_steps).
+    valid_data : np.ndarray
+        Optional data containing time step information.
+    batch_idx : int
+        Index of the batch to visualize.
+    head_idx : int
+        Index of the attention head to visualize.
+    group_idx : int
+        Index of the group to visualize.
+    normalize : bool
+        Whether to normalize the attention scores.
+    """
+    import plotly.graph_objects as go
+
+    # Extract the scores for the given batch, head, and group
+    if group_idx is None:
+        scores = np.mean(attention_scores, axis=3)  # Average over groups
+    else:
+        scores = attention_scores[:, :, :, group_idx, :]
+    if batch_idx is None:
+        scores = np.mean(scores, axis=0)  # Average over batches
+    else:
+        scores = scores[batch_idx, :, :, :]
+    if head_idx is None:
+        scores = np.mean(scores, axis=0)  # Shape: (n_time_steps, n_time_steps)
+    else:
+        scores = scores[head_idx, :, :]  # Shape: (n_time_steps, n_time_steps)
+
+    # Normalize the scores
+    if normalize:
+        scores = (scores - np.min(scores)) / (np.max(scores) - np.min(scores))
+
+    time_labels = None
+    if valid_data is not None and batch_idx is not None and group_idx is not None:
+        # Extract time labels and positions
+        time_labels = valid_data['sim_data'][batch_idx, group_idx, :, 0]  # Extract time step label
+        non_zero_indices = time_labels != 0
+        scores = scores[non_zero_indices, :][:, non_zero_indices]
+        time_labels = time_labels[non_zero_indices]
+
+    # Create edges for x and y if time positions are given
+    if time_labels is not None:
+        # Create edges for the heatmap blocks
+        x_edges = time_labels
+        y_edges = time_labels
+    else:
+        # Use default positions if time_positions is not provided
+        n_time_steps = scores.shape[0]
+        x_edges = np.arange(n_time_steps + 1)
+        y_edges = np.arange(n_time_steps + 1)
+
+    # Create the heatmap using Plotly
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=scores,
+            x=x_edges,
+            y=y_edges,
+            colorscale='Viridis',
+            colorbar=dict(title='Normalized Attention Score' if normalize else 'Attention Score')
+        )
+    )
+
+    # Set the layout with labels and titles
+    fig.update_layout(
+        title=f"Attention Scores for Head {head_idx}",
+        xaxis_title='Key/Value Time Steps',
+        yaxis_title='Query Time Steps',
+        xaxis=dict(tickmode='array', tickvals=(x_edges[:-1] + np.diff(x_edges) / 2), ticktext=time_labels, tickangle=90),
+        yaxis=dict(tickmode='array', tickvals=(y_edges[:-1] + np.diff(y_edges) / 2), ticktext=time_labels, autorange='reversed'),
+        width=800,
+        height=600
+    )
+    fig.show()
