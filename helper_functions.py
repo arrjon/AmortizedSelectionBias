@@ -126,6 +126,58 @@ def normalize_household_data(
     return all_households
 
 
+def get_household_statistic(data: np.ndarray) -> dict:
+    from collections import defaultdict
+
+    # Initialize counters
+    infection_counts = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+    time_distribution = defaultdict(lambda: defaultdict(list))
+    time_distribution_age = defaultdict(lambda: defaultdict(list))
+
+    # Iterate through each household
+    for household in data:
+        household_members = household[:, 0] != 0
+        household = household[household_members][:-1]  # remove follow-up date
+        household_size = household.shape[0]
+        infection_times = household[:, 0]
+        infection_statuses = household[:, 1:3]
+        infection_statuses = np.where(infection_statuses.sum(axis=1) == 0, 0, infection_statuses.argmax(axis=1) + 1)
+        age_group = household[:, 3:5]
+        age_group = np.where(age_group.sum(axis=1) == 0, 0, age_group.argmax(axis=1) + 1)
+        protection_status = household[:, 5]
+
+        for i in range(household_size):
+            # Update the count based on household size, age group, and protection status
+            infection_counts[household_size][age_group[i]][infection_statuses[i]] += 1
+
+            # Record the infection time for distribution analysis
+            time_distribution[household_size][infection_statuses[i]].append(infection_times[i])
+            time_distribution_age[household_size][age_group[i]].append(infection_times[i])
+
+    infection_counts = pd.DataFrame(infection_counts)
+    time_distribution = pd.DataFrame(time_distribution)
+    time_distribution_age = pd.DataFrame(time_distribution_age)
+
+    # change index
+    age_index = ['<6 years', '6-11 years', '>11 years']
+    status_index = ['not_infected', 'infected_symptomatic', 'infected_asymptomatic']
+    infection_counts.index = [age_index[i] for i in infection_counts.index]
+    infection_counts = infection_counts.reindex(age_index)  # reorder
+
+    time_distribution.index = [status_index[i] for i in time_distribution.index]
+    time_distribution = time_distribution.reindex(status_index)  # reorder
+    time_distribution_age.index = [age_index[i] for i in time_distribution_age.index]
+    time_distribution_age = time_distribution_age.reindex(age_index)  # reorder
+
+    out_dict = {
+        'infection_counts': infection_counts,
+        'time_distribution': time_distribution,
+        'time_distribution_age': time_distribution_age,
+        'household_sizes': sorted(time_distribution_age.columns)
+    }
+    return out_dict
+
+
 def measure_bias(true_values, estimated_values, param_names):
     # Ensure the arrays have the correct shape
     if true_values.shape != estimated_values.shape:
