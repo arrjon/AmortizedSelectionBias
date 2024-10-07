@@ -158,12 +158,14 @@ def measure_bias(true_values, estimated_values, param_names):
     return pd.DataFrame(results)
 
 
-def plot_attention_scores(attention_scores,
+def plot_attention_scores(attention_scores: np.ndarray,
+                          valid_data: Optional[np.ndarray] = None,
+                          batch_idx: Optional[int] = None,
                           head_idx: Optional[int] = None,
                           group_idx: Optional[int] = None,
                           normalize: bool = True):
     """
-    Plots a heatmap of attention scores for a specific batch and head group.
+    Plots a heatmap of attention scores for a specific batch, head or group.
 
     Parameters:
     -----------
@@ -175,11 +177,15 @@ def plot_attention_scores(attention_scores,
         Index of the group to visualize.
     """
     # Extract the scores for the given batch, head, and group
+
     if group_idx is None:
         scores = tf.reduce_mean(attention_scores, axis=3)  # Average over groups
     else:
         scores = attention_scores[:, :, :, group_idx, :]
-    scores = tf.reduce_mean(scores, axis=0)  # average over batches
+    if batch_idx is None:
+        scores = tf.reduce_mean(scores, axis=0)  # average over batches
+    else:
+        scores = scores[batch_idx, :, :, :]
     if head_idx is None:
         scores = tf.reduce_mean(scores, axis=0).numpy()  # Shape: (9, 9)
     else:
@@ -188,6 +194,10 @@ def plot_attention_scores(attention_scores,
     # Normalize the scores
     if normalize:
         scores = (scores - np.min(scores)) / (np.max(scores) - np.min(scores))
+
+    first_inv_idx = None
+    if valid_data is not None and batch_idx is not None and group_idx is not None:
+        first_inv_idx = np.where(valid_data['sim_data'][batch_idx, group_idx, :, 0] != 0)[0][0]
 
     # Plot the heatmap
     plt.figure(figsize=(8, 6))
@@ -199,4 +209,11 @@ def plot_attention_scores(attention_scores,
     plt.title(f"Attention Scores for, Head {head_idx}")
     plt.xlabel('Key/Value Time Steps')
     plt.ylabel('Query Time Steps')
+    if first_inv_idx is not None:
+        # Add a vertical line at the index of first infected
+        plt.vlines(x=first_inv_idx - 0.5, ymin=first_inv_idx - 0.5, ymax=scores.shape[0] - 0.5,
+                   color='red', linestyle='--', label='First 1')
+        plt.hlines(y=first_inv_idx - 0.5, xmin=first_inv_idx - 0.5, xmax=scores.shape[0] - 0.5,
+                   color='red', linestyle='--', label='First 1')
+
     plt.show()
