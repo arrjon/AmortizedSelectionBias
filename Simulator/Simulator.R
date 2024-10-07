@@ -252,22 +252,21 @@ data_selection <- function(d, variant, method, verbose=F) {
   
   # available households
   hh <- unique(d$id_hh)
-  #hh_origin <- unique(d$id_hh_origin)
+  hh_origin <- unique(d$id_hh_origin)
 
-  if(method=="random") {
-    
-    # changed selection procedure
-    # from each original household ids sample one representative
+  if(method=="original_random") {
+    # from each original household ids sample one random representative
     # group by id_hh_origin and sample one id_hh per group
-    # sampled_households <- d %>%
-    #  group_by(id_hh_origin) %>%
-    #  summarise(id_hh = sample(unique(id_hh), 1)) %>%
-    #  ungroup()
+    sampled_households <- d %>%
+     group_by(id_hh_origin) %>%
+     summarise(id_hh = sample(unique(id_hh), 1)) %>%
+     ungroup()
 
     # filter the original dataframe to keep only the sampled households
-    # recruit <- d %>%
-    #  semi_join(sampled_households, by = c("id_hh_origin", "id_hh"))
+    recruit <- d %>%
+     semi_join(sampled_households, by = c("id_hh_origin", "id_hh"))
 
+  } else if(method=="random") {
     # random sample from all of the households
     sel <- sample(hh, tot_hh) # just sample a total number of households
     recruit <- d[d$id_hh %in% sel,]
@@ -282,29 +281,32 @@ data_selection <- function(d, variant, method, verbose=F) {
     not_selected <- 0
     
     while(hh_s+hh_a < tot_hh) { # while there is not enough hh is the final base
-      
-      # changed selection procedure
-      # first select an original household, then select a household from this original household
-      # u_origin <- sample(hh_origin, 1) # pick one randomly from the original hh
-      # get all hh from this original hh which are still in the list of pickable hh
-      # sub_d <- d[d$id_hh_origin==u_origin & d$id_hh %in% hh,]
-      # pick one hh from this list, else use also other original households
-      # if (nrow(sub_d)==0) {
-      #  u <- sample(hh, 1) # pick one randomly
-      # }
-      # else {
-      #  possible_hh <- unique(sub_d$id_hh)
-      #  u <- sample(possible_hh, 1) # pick one randomly
-      # }
-      
-      u <- sample(hh, 1) # pick one randomly
-
       if(method=="pedcov") {
+        u <- sample(hh, 1) # pick one randomly and check if adult etc
+        u_origin <- d$id_hh_origin[d$id_hh==u]  # just a placeholder
+      } else {  # 'original_pedcov'
+        # changed selection procedure
+        # first select an original household, then select a household from this original household
+        u_origin <- sample(hh_origin, 1) # pick one randomly from the original hh
+        # get all hh from this original hh which are still in the list of pickable hh
+        sub_d <- d[d$id_hh_origin==u_origin & d$id_hh %in% hh,]
+        # pick one hh from this list, else use also other original households
+        if (nrow(sub_d)==0) {
+          u <- sample(hh, 1) # pick one randomly
+        }
+        else {
+          possible_hh <- unique(sub_d$id_hh)
+          u <- sample(possible_hh, 1) # pick one randomly
+        }
+      }
+
+      if (method %in% c("pedcov", "original_pedcov")) {
         
         # If inclusion case is an adult --> exclude and go to next iteration
         if(d$age_exact[d$id_hh==u & d$is_incluCase==1] > 18 ) {
           not_selected <- not_selected +1
-          hh <- hh[hh!=u] # Remove this hh from the list of pickable hh
+          #hh <- hh[hh!=u] # Remove this hh from the list of pickable hh
+          hh <- setdiff(hh, u)
           next
         }
         
@@ -313,7 +315,8 @@ data_selection <- function(d, variant, method, verbose=F) {
       # If inclusion case has not had symptoms or test yet --> exclude
       if( d$date_sympt[d$id_hh==u & d$is_incluCase==1] >= d$incl_dt[d$id_hh==u & d$is_incluCase==1]) {
         not_selected <- not_selected +1
-        hh <- hh[hh!=u] # Remove this hh from the list of pickable hh
+        #hh <- hh[hh!=u] # Remove this hh from the list of pickable hh
+        hh <- setdiff(hh, u)
         next
       }
       
@@ -325,13 +328,13 @@ data_selection <- function(d, variant, method, verbose=F) {
           hh_s <- hh_s+1 # increase count of sympto incl cases
           hh_inclIndex <- hh_inclIndex + 1 # increase count of incl case also index
 
-          #hh_origin <- hh_origin[hh_origin!=u_origin] # Remove this hh from the list of pickable hh_origin
+          hh_origin <- setdiff(hh_origin, u_origin) # Remove this hh from the list of pickable hh_origin
         } else if(d$infect_status[d$id_hh==u & d$is_incluCase==1]==2 & hh_a<tot_hh_a) { # If inclusion case is asymptomatic (and the count for this type is not full)
           recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
           hh_a <- hh_a+1 # increase count of asympto incl cases
           hh_inclIndex <- hh_inclIndex + 1 # increase count of incl case also index
 
-          #hh_origin <- hh_origin[hh_origin!=u_origin] # Remove this hh from the list of pickable hh_origin
+          hh_origin <- setdiff(hh_origin, u_origin) # Remove this hh from the list of pickable hh_origin
         } else not_selected <- not_selected +1 # If the count for this type of sympto status is already full --> exclude
         
         if(verbose) message(paste("sympto", hh_s, "asympto", hh_a))
@@ -345,20 +348,20 @@ data_selection <- function(d, variant, method, verbose=F) {
           hh_s <- hh_s+1 # increase count of sympto incl cases
           hh_inclNotIndex <- hh_inclNotIndex + 1 # increase count of incl case not index
 
-          #hh_origin <- hh_origin[hh_origin!=u_origin] # Remove this hh from the list of pickable hh_origin
+          hh_origin <- setdiff(hh_origin, u_origin) # Remove this hh from the list of pickable hh_origin
         } else if(d$infect_status[d$id_hh==u & d$is_incluCase==1]==2 & hh_a<tot_hh_a) { # If inclusion case is asymptomatic (and the count for this type is not full)
           recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
           hh_a <- hh_a+1 # increase count of asympto incl cases
           hh_inclNotIndex <- hh_inclNotIndex + 1 # increase count of incl case not index
 
-          #hh_origin <- hh_origin[hh_origin!=u_origin] # Remove this hh from the list of pickable hh_origin
+          hh_origin <- setdiff(hh_origin, u_origin) # Remove this hh from the list of pickable hh_origin
         } else not_selected <- not_selected +1 # If the count for this type of sympto status is already full --> exclude
         
         if(verbose) message(paste("sympto", hh_s, "asympto", hh_a))
         
       } else not_selected <- not_selected +1 # If the count for this type of incl case / index is already full --> exclude
       
-      hh <- hh[hh!=u] # Remove this hh from the list of pickable hh
+      hh <- setdiff(hh, u) # Remove this hh from the list of pickable hh
 
     }
   }
@@ -383,7 +386,7 @@ data_selection <- function(d, variant, method, verbose=F) {
 simulate_and_reformat <- function(par=NULL, id=1) {
   # variants: alpha, omicron
   variant <- par$variant #"alpha"
-  # selection procedure: pedcov, random
+  # selection procedure: pedcov, random, original_random, original_pedcov
   selection_procedure <- par$selection_procedure # "pedcov"
   
   # convert list

@@ -29,8 +29,9 @@ def simulator(log_params: np.ndarray,
     """
     if variant not in ['alpha', 'omicron']:
         raise ValueError(f"Variant '{variant}' not supported. Must be 'alpha' or 'omicron'.")
-    if selection_procedure not in ['pedcov', 'random']:
-        raise ValueError(f"Selection procedure '{selection_procedure}' not supported. Must be 'pedcov' or 'random'.")
+    if selection_procedure not in ['pedcov', 'random', 'original_pedcov', 'original_random']:
+        raise ValueError(f"Selection procedure '{selection_procedure}' not supported. "
+                         f"Must be 'pedcov', 'random', 'original_pedcov' or 'original_random'.")
 
     if fixed_parameters_dict is None:
         fixed_parameters = []
@@ -76,8 +77,9 @@ def simulator_both_variants(log_params: np.ndarray,
     :param fixed_parameters_dict: dictionary with fixed parameters for each variant
     :return: simulated data as numpy array
     """
-    if selection_procedure not in ['pedcov', 'random']:
-        raise ValueError(f"Selection procedure '{selection_procedure}' not supported. Must be 'pedcov' or 'random'.")
+    if selection_procedure not in ['pedcov', 'random', 'original_pedcov', 'original_random']:
+        raise ValueError(f"Selection procedure '{selection_procedure}' not supported. "
+                         f"Must be 'pedcov', 'random', 'original_pedcov' or 'original_random'.")
 
     if fixed_parameters_dict is None:
         fixed_parameters_dict = {'alpha': [], 'omicron': []}
