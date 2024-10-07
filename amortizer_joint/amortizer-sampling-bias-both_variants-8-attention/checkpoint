@@ -1,0 +1,16 @@
+model_checkpoint_path: "ckpt-203"
+all_model_checkpoint_paths: "ckpt-197"
+all_model_checkpoint_paths: "ckpt-198"
+all_model_checkpoint_paths: "ckpt-199"
+all_model_checkpoint_paths: "ckpt-200"
+all_model_checkpoint_paths: "ckpt-201"
+all_model_checkpoint_paths: "ckpt-202"
+all_model_checkpoint_paths: "ckpt-203"
+all_model_checkpoint_timestamps: 1728161513.6671
+all_model_checkpoint_timestamps: 1728161616.6665154
+all_model_checkpoint_timestamps: 1728161720.0772004
+all_model_checkpoint_timestamps: 1728161821.909733
+all_model_checkpoint_timestamps: 1728161925.0224533
+all_model_checkpoint_timestamps: 1728162027.9212894
+all_model_checkpoint_timestamps: 1728162130.0092351
+last_preserved_timestamp: 1728141258.8259099
