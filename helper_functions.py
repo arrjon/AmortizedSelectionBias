@@ -1,7 +1,9 @@
-from typing import Union
+from typing import Union, Optional
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri, ListVector
 
 
@@ -154,3 +156,47 @@ def measure_bias(true_values, estimated_values, param_names):
         })
 
     return pd.DataFrame(results)
+
+
+def plot_attention_scores(attention_scores,
+                          head_idx: Optional[int] = None,
+                          group_idx: Optional[int] = None,
+                          normalize: bool = True):
+    """
+    Plots a heatmap of attention scores for a specific batch and head group.
+
+    Parameters:
+    -----------
+    attention_scores : tf.Tensor
+        Attention scores tensor of shape (batch_size, num_heads, n_time_steps, n_groups, n_time_steps).
+    head_idx : int
+        Index of the attention head to visualize.
+    group_idx : int
+        Index of the group to visualize.
+    """
+    # Extract the scores for the given batch, head, and group
+    if group_idx is None:
+        scores = tf.reduce_mean(attention_scores, axis=3)  # Average over groups
+    else:
+        scores = attention_scores[:, :, :, group_idx, :]
+    scores = tf.reduce_mean(scores, axis=0)  # average over batches
+    if head_idx is None:
+        scores = tf.reduce_mean(scores, axis=0).numpy()  # Shape: (9, 9)
+    else:
+        scores = scores[head_idx, :, :].numpy()  # Shape: (9, 9)
+
+    # Normalize the scores
+    if normalize:
+        scores = (scores - np.min(scores)) / (np.max(scores) - np.min(scores))
+
+    # Plot the heatmap
+    plt.figure(figsize=(8, 6))
+    plt.imshow(scores, cmap='viridis', aspect='auto')
+    if normalize:
+        plt.colorbar(label='Normalized Attention Score')
+    else:
+        plt.colorbar(label='Attention Score')
+    plt.title(f"Attention Scores for, Head {head_idx}")
+    plt.xlabel('Key/Value Time Steps')
+    plt.ylabel('Query Time Steps')
+    plt.show()
