@@ -18,8 +18,8 @@ best network: 5
 
 # Both variants and trained only on PedCov
 ## Loss of networks:
-- 7: 9.1994  # 6 layers, attention
-- 8: 9.317 # 7 layers, attention
+- 7: - # 6 layers, attention
+- 8: - # 7 layers, attention
 - 9: 8.977  # 8 layers, attention 
 
 best network: 9

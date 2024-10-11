@@ -16,11 +16,11 @@ best network: 3
 
 # Both variants and trained only on PedCov
 ## Loss of networks:
-- 6: 2.1603922843933105  # 6 layers, attention
-- 7: 1.6322660446166992  # 7 layers, attention
-- 8: 1.754188060760498  # 8 layers, attention 
+- 7: 2.1603922843933105  # 6 layers, attention
+- 8: 1.6322660446166992  # 7 layers, attention
+- 9: 1.754188060760498  # 8 layers, attention 
 
-best network: 7
+best network: 8
 - seems converged
 - sbc checks passed
 - does detect different recruitment scenarios in summary statistics for omicron
