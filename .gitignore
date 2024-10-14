@@ -4,3 +4,4 @@ outdated
 train_bayesflow.py
 train_bayesflow_joint.py
 /Simulator/.Rhistory
+.DS_Store
