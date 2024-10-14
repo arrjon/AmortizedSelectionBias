@@ -2,6 +2,7 @@ import os
 import pickle
 from functools import partial
 from time import perf_counter
+from typing import Union
 
 import numpy as np
 import tensorflow as tf
@@ -30,11 +31,17 @@ def custom_loader(file_path):
 
 def configurator(forward_dict: dict,
                  prior_mean: np.ndarray, prior_std: np.ndarray,
-                 not_inform_selection: bool = False, drop_random: bool = False) -> dict:
+                 not_inform_selection: bool = False, drop_random: bool = False, drop_n_households = False) -> dict:
     out_dict = {}
 
     # Extract data (already normalized)
     x = forward_dict["sim_data"]
+    if drop_n_households:
+        if isinstance(drop_n_households, bool):
+            drop_n_households = np.random.choice([0., 0.1, 0.3, 0.5, 0.7, 0.9])
+        drop_n_households = int(drop_n_households * x.shape[1])
+        print(f'Warning: Dropping {drop_n_households} / {x.shape[1]} households')
+        x = x[:, drop_n_households:]
     out_dict['summary_conditions'] = x.astype(np.float32)
 
     # Extract params
@@ -237,7 +244,8 @@ def load_model(model_id: int, n_params: int, generative_model,
                train_network: bool, valid_data: dict,
                presim_folder: str, amortizer_folder: str,
                make_prior_relative: callable = None,
-               amortizer_return_attention_weights: bool = False):
+               amortizer_return_attention_weights: bool = False,
+               drop_n_households: Union[bool, float] = False):
     iterations_per_epoch = 1000
     # 10000 batches to be generated, 10 epoch until batches are used up
     max_epochs = 250  # 100
@@ -343,9 +351,9 @@ def load_model(model_id: int, n_params: int, generative_model,
             # during training, we drop random selection if we want to train on PedCov only
             # during inference, we are not dropping random selection, but we do not inform the network about the selection procedure
             configurator=partial(configurator, prior_mean=prior_mean, prior_std=prior_std,
-                                 drop_random=drop_random_selection) if train_network else
+                                 drop_random=drop_random_selection, drop_n_households=drop_n_households) if train_network else
             partial(configurator, prior_mean=prior_mean, prior_std=prior_std,
-                    not_inform_selection=drop_random_selection),
+                    not_inform_selection=drop_random_selection, drop_n_households=drop_n_households),
             generative_model=generative_model,
             checkpoint_path=checkpoint_path,
             skip_checks=True,
@@ -393,18 +401,21 @@ def load_model(model_id: int, n_params: int, generative_model,
         trainer.load_pretrained_network()
         history = trainer.loss_history.get_plottable()
 
-    # Check if training converged
-    if np.isnan(history['val_losses'].iloc[-1]).any():
-        print('Training failed with NaN loss at the end')
-        if np.isnan(history['val_losses'].iloc[-max_to_keep:]).all():
-            print('Training failed with NaN loss for all latest checkpoints')
+    if 'val_losses' in history.keys():
+        # Check if training converged
+        if np.isnan(history['val_losses'].iloc[-1]).any():
+            print('Training failed with NaN loss at the end')
+            if np.isnan(history['val_losses'].iloc[-max_to_keep:]).all():
+                print('Training failed with NaN loss for all latest checkpoints')
 
-    # Find the checkpoint with the lowest validation loss out of the last 7
-    recent_losses = history['val_losses'].iloc[-max_to_keep:]
-    best_valid_epoch = recent_losses['Loss'].idxmin() + 1  # checkpoints are 1-based indexed
-    new_checkpoint = trainer.manager.latest_checkpoint.rsplit('-', 1)[0] + f'-{best_valid_epoch}'
-    trainer.checkpoint.restore(new_checkpoint)
-    print("Networks loaded from {}".format(new_checkpoint))
-    print(f"Best validation loss: {recent_losses['Loss'].min()}")
+        # Find the checkpoint with the lowest validation loss out of the last 7
+        recent_losses = history['val_losses'].iloc[-max_to_keep:]
+        best_valid_epoch = recent_losses['Loss'].idxmin() + 1  # checkpoints are 1-based indexed
+        new_checkpoint = trainer.manager.latest_checkpoint.rsplit('-', 1)[0] + f'-{best_valid_epoch}'
+        trainer.checkpoint.restore(new_checkpoint)
+        print("Networks loaded from {}".format(new_checkpoint))
+        print(f"Best validation loss: {recent_losses['Loss'].min()}")
+    else:
+        print('No validation losses found, using latest checkpoint')
 
     return trainer, amortizer_name

@@ -44,6 +44,8 @@ dict_encoding = {
     }
 }
 
+DATE_MAX = 1000  # maximum date in the dataset
+
 
 def encode_row(row):
     encoded = [row['date_sympt_norm']]
@@ -74,9 +76,8 @@ def normalize_household_data(
     all_households = []
 
     # date_sympt = 1000 is not infected
-    date_max = 1000
-    df.loc[df['date_sympt'] != 1000, 'date_sympt_norm'] = df.loc[df['date_sympt'] != 1000, 'date_sympt'] / date_max
-    df['end_followup_norm'] = df['end_followup'] / date_max
+    df.loc[df['date_sympt'] != 1000, 'date_sympt_norm'] = df.loc[df['date_sympt'] != 1000, 'date_sympt'] / DATE_MAX
+    df['end_followup_norm'] = df['end_followup'] / DATE_MAX
     #df.loc[df['date_sympt'] == 1000, 'date_sympt_norm'] = 1  # when sorting it stays at the end
     df.loc[df['date_sympt'] == 1000, 'date_sympt_norm'] = df.loc[df['date_sympt'] == 1000, 'end_followup_norm']
 
@@ -126,7 +127,39 @@ def normalize_household_data(
     return all_households
 
 
+def shorten_follow_up_time(data: np.ndarray, max_followup: int) -> np.ndarray:
+    """
+    Shorten the follow-up time to a given maximum follow-up time. Input can be a single simulation or multiple.
+    """
+    max_followup = max_followup / DATE_MAX  # normalise the same way as the dates
+
+    if data.ndim == 3:
+        # only one simulation with multiple households
+        household_data = data.copy()
+        sim_data_list = household_data[np.newaxis]
+    elif data.ndim == 4:
+        # multiple simulations, each with multiple households
+        sim_data_list = data.copy()
+    else:
+        raise ValueError(f"The data must have 3 or 4 dimensions, but has {data.ndim} dimensions.")
+
+    for s_i, household_data in enumerate(sim_data_list):
+        for household in household_data:
+            # infection status is not known after the end of follow-up
+            unobserved_members = household[:, 0] > max_followup
+            household[:, 0][unobserved_members] = max_followup
+            household[:, 1][unobserved_members] = 0
+            household[-1, 1] = -1  # end of follow-up
+        sim_data_list[s_i] = household_data
+    if data.ndim == 3:
+        return sim_data_list[0]
+    return sim_data_list
+
+
 def get_household_statistic(data: np.ndarray) -> dict:
+    """
+    Get the number of infections by household size, age group, and infection status.
+    """
     from collections import defaultdict
 
     # Initialize counters
