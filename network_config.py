@@ -27,8 +27,10 @@ class CustomLoader:
         np.random.shuffle(self.files)  # Shuffle file order initially
         self.remaining_files = list(self.files)
 
-    def get_next_iteration(self, iterations_per_epoch: int) -> list:
+    def get_next_iteration(self, iterations_per_epoch: int = None) -> list:
         """Loads files dynamically to return a batch of simulations"""
+        if iterations_per_epoch is None:
+            iterations_per_epoch = self.iterations_per_epoch
         iteration_batches = []
 
         # Load until we have enough for the batch or no more files are left
@@ -49,7 +51,8 @@ class CustomLoader:
 
         return iteration_batches
 
-    def __call__(self) -> list:
+    def __call__(self, file_path=None) -> list:
+        # file_path not needed, just to match the signature of the loader
         return self.get_next_iteration(self.iterations_per_epoch)
 
 
