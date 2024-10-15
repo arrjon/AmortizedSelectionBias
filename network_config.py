@@ -18,18 +18,39 @@ from tensorflow.keras.models import Sequential
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-def custom_loader(file_path):
-    """Uses pickle to load, but each path is folder with multiple files, each one batch"""
-    # load all files in folder
-    loaded_presimulations = []
-    for file in os.listdir(file_path):
-        with open(os.path.join(file_path, file), 'rb') as batch_file:
-            batch = pickle.load(batch_file)[0]
-            assert isinstance(batch, dict)  # only one batch per file
-            loaded_presimulations.append(batch)
-    # shuffle list, so iterations are random, only batches stay the same
-    np.random.shuffle(loaded_presimulations)
-    return loaded_presimulations
+
+class CustomLoader:
+    def __init__(self, file_path: str, iterations_per_epoch: int):
+        self.file_path = file_path
+        self.iterations_per_epoch = iterations_per_epoch
+        self.files = os.listdir(self.file_path)
+        np.random.shuffle(self.files)  # Shuffle file order initially
+        self.remaining_files = list(self.files)
+
+    def get_next_iteration(self, iterations_per_epoch: int) -> list:
+        """Loads files dynamically to return a batch of simulations"""
+        iteration_batches = []
+
+        # Load until we have enough for the batch or no more files are left
+        while len(iteration_batches) < iterations_per_epoch and self.remaining_files:
+            # Pop one file from the remaining files
+            file = self.remaining_files.pop()
+            with open(os.path.join(self.file_path, file), 'rb') as batch_file:
+                simulation_batch = pickle.load(batch_file)[0]
+                assert isinstance(simulation_batch, dict)   # only one batch per file
+                iteration_batches.append(simulation_batch)
+
+        # If the batch is still smaller than the required batch_size, reshuffle and continue
+        if len(iteration_batches) < iterations_per_epoch:
+            self.remaining_files = list(self.files)
+            np.random.shuffle(self.remaining_files)
+            # Recursively call to complete the iteration
+            iteration_batches.extend(self.get_next_iteration(iterations_per_epoch - len(iteration_batches)))
+
+        return iteration_batches
+
+    def __call__(self) -> list:
+        return self.get_next_iteration(self.iterations_per_epoch)
 
 
 def configurator(forward_dict: dict,
@@ -381,7 +402,7 @@ def load_model(model_id: int, n_params: int, generative_model,
             optimizer=optimizer,
             max_epochs=max_epochs,
             early_stopping=True,
-            custom_loader=custom_loader,
+            custom_loader=CustomLoader(file_path=presim_folder, iterations_per_epoch=iterations_per_epoch),
             validation_sims=valid_data
         )
 
