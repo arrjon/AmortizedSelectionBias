@@ -1,3 +1,4 @@
+import logging
 import os
 import pickle
 from functools import partial
@@ -11,9 +12,11 @@ from bayesflow.amortizers import AmortizedPosterior
 from bayesflow.helper_networks import MultiConv1D
 from bayesflow.networks import InvertibleNetwork
 from bayesflow.trainers import Trainer
-from tensorflow.keras.layers import Dense, LSTM, GRU, Bidirectional
+from tensorflow.keras.layers import Dense, GRU, Bidirectional
 from tensorflow.keras.models import Sequential
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 def custom_loader(file_path):
     """Uses pickle to load, but each path is folder with multiple files, each one batch"""
@@ -31,17 +34,17 @@ def custom_loader(file_path):
 
 def configurator(forward_dict: dict,
                  prior_mean: np.ndarray, prior_std: np.ndarray,
-                 not_inform_selection: bool = False, drop_random: bool = False, drop_n_households = False) -> dict:
+                 not_inform_selection: bool = False, keep_pedcov_only: bool = False, drop_n_households = False) -> dict:
     out_dict = {}
 
     # Extract data (already normalized)
     x = forward_dict["sim_data"]
     if drop_n_households:
         if isinstance(drop_n_households, bool):
-            drop_n_households = np.random.choice([0., 0.1, 0.3, 0.5, 0.7, 0.9])
+            drop_n_households = np.random.choice([0., 0.1, 0.3, 0.5, 0.7, 0.9], p=[0.5, 0.1, 0.1, 0.1, 0.1, 0.1])
         drop_n_households = int(drop_n_households * x.shape[1])
-        print(f'Warning: Dropping {drop_n_households} / {x.shape[1]} households')
-        x = x[:, drop_n_households:]
+        logger.info(f'Dropping {drop_n_households} / {x.shape[1]} households')
+        x = x[:, drop_n_households:]  # order of households is random anyway
     out_dict['summary_conditions'] = x.astype(np.float32)
 
     # Extract params
@@ -66,14 +69,14 @@ def configurator(forward_dict: dict,
          for v, s in zip(sim_non_batchable_context, sim_batchable_context)]
     )
 
-    if drop_random:
-        print('Warning: Dropping random selection')
+    if keep_pedcov_only:
+        logger.warning('Drop all but PedCov')
         not_inform_selection = True
         # Extract context
         keep_indices = np.array([True if s == 'pedcov' else False for s in sim_batchable_context])
         if keep_indices.size == 0:
             # If keep_indices is empty, select a random index to not have an empty batch
-            print("keep_indices is empty, select a random index")
+            logger.warning("keep_indices is empty, select a random index")
             keep_indices = np.array([np.random.choice(len(sim_batchable_context))])
 
         variant_selection = variant_selection[keep_indices]
@@ -83,7 +86,7 @@ def configurator(forward_dict: dict,
 
     if not_inform_selection:
         # drop second direct condition on selection procedure
-        print('Warning: Not informing about selection procedure')
+        logger.info('Warning: Not informing about selection procedure')
         variant_selection = variant_selection[:, 0][:, np.newaxis]
 
     out_dict['direct_condition'] = variant_selection.astype(np.float32)
@@ -100,7 +103,7 @@ def configurator(forward_dict: dict,
 def configurator_joint(forward_dict: dict,
                        prior_mean: np.ndarray, prior_std: np.ndarray,
                        make_prior_relative: callable,
-                       not_inform_selection: bool = False, drop_random: bool = False) -> dict:
+                       not_inform_selection: bool = False, keep_pedcov_only: bool = False) -> dict:
     out_dict = {}
 
     # Extract data (already normalized)
@@ -126,14 +129,14 @@ def configurator_joint(forward_dict: dict,
          for s in sim_batchable_context]
     )
 
-    if drop_random:
-        print('Warning: Dropping random selection')
+    if keep_pedcov_only:
+        logger.warning('Drop all but PedCov')
         not_inform_selection = True
         # Extract context
         keep_indices = np.array([True if s == 'pedcov' else False for s in sim_batchable_context])
         if keep_indices.size == 0:
             # If keep_indices is empty, select a random index to not have an empty batch
-            print("keep_indices is empty, select a random index")
+            logger.warning("keep_indices is empty, select a random index")
             keep_indices = np.array([np.random.choice(len(sim_batchable_context))])
 
         selection_cond = selection_cond[keep_indices]
@@ -143,7 +146,7 @@ def configurator_joint(forward_dict: dict,
 
     if not_inform_selection:
         # drop direct condition on selection procedure
-        print('Warning: Not informing about selection procedure')
+        logger.info('Warning: Not informing about selection procedure')
     else:
         out_dict['direct_condition'] = selection_cond.astype(np.float32)
 
@@ -164,12 +167,11 @@ class GroupSummaryNetwork(tf.keras.Model):
             self,
             summary_dim,
             num_conv_layers=2,
-            rnn_units=128,
+            rnn_units=32,
             bidirectional=True,
             conv_settings=None,
-            use_attention=False,
+            use_attention=True,
             return_attention_weights=False,
-            use_GRU=True,
             **kwargs
     ):
         super().__init__(**kwargs)
@@ -179,21 +181,20 @@ class GroupSummaryNetwork(tf.keras.Model):
 
         conv = Sequential([MultiConv1D(conv_settings) for _ in range(num_conv_layers)])
         self.group_conv = tf.keras.layers.TimeDistributed(conv)
-        self.use_attention = use_attention
         self.return_attention_weights = return_attention_weights
-        self.pooling = tf.keras.layers.GlobalAveragePooling1D()
 
+        self.use_attention = use_attention
         if self.use_attention:
             self.attention = tf.keras.layers.MultiHeadAttention(num_heads=4, key_dim=rnn_units)
+            self.norm_layer = tf.keras.layers.LayerNormalization()
 
-        if use_GRU:
-            rnn = Bidirectional(GRU(rnn_units, return_sequences=use_attention)) if bidirectional else GRU(rnn_units,
-                                                                                                          return_sequences=use_attention)
+        if bidirectional:
+            rnn = Bidirectional(GRU(rnn_units, return_sequences=use_attention))
         else:
-            rnn = Bidirectional(LSTM(rnn_units, return_sequences=use_attention)) if bidirectional else LSTM(rnn_units,
-                                                                                                            return_sequences=use_attention)
+            rnn = GRU(rnn_units, return_sequences=use_attention)
         self.group_rnn = tf.keras.layers.TimeDistributed(rnn)
 
+        self.pooling = tf.keras.layers.GlobalAveragePooling1D()
         self.out_layer = Dense(summary_dim, activation="linear")
         self.summary_dim = summary_dim
 
@@ -211,6 +212,8 @@ class GroupSummaryNetwork(tf.keras.Model):
         out : tf.Tensor
             Output of shape (batch_size, summary_dim)
         """
+        attention_weights = None
+
         # Apply the RNN to each group
         out = self.group_conv(x, **kwargs)
         out = self.group_rnn(out, **kwargs)  # (batch_size, n_groups, lstm_units)
@@ -218,7 +221,7 @@ class GroupSummaryNetwork(tf.keras.Model):
         # bidirectional LSTM returns 2*lstm_units
 
         if self.use_attention:
-            # learn a query vector to attend over the time points
+            # learn a query vector to attend over the time points (mean over groups)
             query = tf.reduce_mean(out, axis=1)
             # Reshape query to match the required shape for attention
             query = tf.expand_dims(query, axis=1)  # (batch_size, 1, n_time_steps, lstm_units)
@@ -228,16 +231,18 @@ class GroupSummaryNetwork(tf.keras.Model):
                 out, attention_weights = self.attention(query, out, return_attention_scores=True, **kwargs)
                 attention_weights = tf.squeeze(attention_weights, axis=2)
             out = tf.squeeze(out, axis=1)  # Remove the extra dimension (batch_size, n_time_steps, lstm_units)
-            out = self.pooling(out, **kwargs)  # (batch_size, 1, lstm_units)
-        else:
-            # pooling over groups, this totally invariants to the order of the groups
-            out = self.pooling(out, **kwargs)  # (batch_size, lstm_units)
+            out = self.norm_layer(out)
+
+        # pooling over time steps
+        out = self.pooling(out, **kwargs)  # (batch_size, lstm_units)
+
         # apply dense layer
         out = self.out_layer(out, **kwargs)  # (batch_size, summary_dim)
 
         if self.return_attention_weights:
             return out, attention_weights
         return out
+
 
 def load_model(model_id: int, n_params: int, generative_model,
                prior_mean: np.ndarray, prior_std: np.ndarray,
@@ -248,7 +253,7 @@ def load_model(model_id: int, n_params: int, generative_model,
                drop_n_households: Union[bool, float] = False):
     iterations_per_epoch = 1000
     # 10000 batches to be generated, 10 epoch until batches are used up
-    max_epochs = 250  # 100
+    max_epochs = 300
 
     coupling_settings_spline = {
         "num_dense": 3,
@@ -259,69 +264,54 @@ def load_model(model_id: int, n_params: int, generative_model,
         "dropout_prob": 0.2,
         "bins": 16,
     }
-    summary_loss = 'MMD'
-    drop_random_selection = False
+    summary_loss = None
+    pedcov_only = False
 
     if model_id == 0:
-        amortizer_name = 'amortizer-sampling-bias-both_variants-6'
-        coupling_settings = coupling_settings_spline
-        num_coupling_layers = 6
-        use_attention = False
-    elif model_id == 1:
         amortizer_name = 'amortizer-sampling-bias-both_variants-6-attention'
-        coupling_settings = coupling_settings_spline
         num_coupling_layers = 6
-        use_attention = True
-    elif model_id == 2:
-        amortizer_name = 'amortizer-sampling-bias-both_variants-7'
-        coupling_settings = coupling_settings_spline
-        num_coupling_layers = 7
-        use_attention = False
-    elif model_id == 3:
+    elif model_id == 1:
         amortizer_name = 'amortizer-sampling-bias-both_variants-7-attention'
-        coupling_settings = coupling_settings_spline
         num_coupling_layers = 7
-        use_attention = True
-    elif model_id == 4:
-        amortizer_name = 'amortizer-sampling-bias-both_variants-8'
-        coupling_settings = coupling_settings_spline
-        num_coupling_layers = 8
-        use_attention = False
-    elif model_id == 5:
+    elif model_id == 2:
         amortizer_name = 'amortizer-sampling-bias-both_variants-8-attention'
-        coupling_settings = coupling_settings_spline
         num_coupling_layers = 8
-        use_attention = True
-    elif model_id == 6:
+    elif model_id == 3:
         amortizer_name = 'amortizer-sampling-bias-both_variants-9-attention'
-        coupling_settings = coupling_settings_spline
         num_coupling_layers = 9
-        use_attention = True
-    elif model_id == 7:
+    elif model_id == 4:
         amortizer_name = 'amortizer-sampling-bias-both_variants-6-attention-pedcov-only'
-        coupling_settings = coupling_settings_spline
         num_coupling_layers = 6
-        use_attention = True
-        drop_random_selection = True
-    elif model_id == 8:
+        pedcov_only = True
+    elif model_id == 5:
         amortizer_name = 'amortizer-sampling-bias-both_variants-7-attention-pedcov-only'
-        coupling_settings = coupling_settings_spline
         num_coupling_layers = 7
-        use_attention = True
-        drop_random_selection = True
-    elif model_id == 9:
+        pedcov_only = True
+    elif model_id == 6:
         amortizer_name = 'amortizer-sampling-bias-both_variants-8-attention-pedcov-only'
-        coupling_settings = coupling_settings_spline
         num_coupling_layers = 8
-        use_attention = True
-        drop_random_selection = True
+        pedcov_only = True
+    elif model_id == 7:
+        amortizer_name = 'amortizer-sampling-bias-both_variants-9-attention-pedcov-only'
+        num_coupling_layers = 9
+        pedcov_only = True
+    elif model_id == 8:
+        amortizer_name = 'amortizer-sampling-bias-both_variants-7-attention-drop-households'
+        num_coupling_layers = 7
+        drop_n_households = True
+    elif model_id == 9:
+        amortizer_name = 'amortizer-sampling-bias-both_variants-8-attention-drop-households'
+        num_coupling_layers = 8
+        drop_n_households = True
+    elif model_id == 10:
+        amortizer_name = 'amortizer-sampling-bias-both_variants-9-attention-drop-households'
+        num_coupling_layers = 9
+        drop_n_households = True
     else:
         raise ValueError('Invalid network id')
 
     summary_net = GroupSummaryNetwork(
         summary_dim=n_params * 2,
-        rnn_units=32,  # multiple of 32 hidden units
-        use_attention=use_attention,
         return_attention_weights=amortizer_return_attention_weights,  # only needed for diagnostics of attention
     )
 
@@ -329,7 +319,7 @@ def load_model(model_id: int, n_params: int, generative_model,
         num_params=n_params,
         num_coupling_layers=num_coupling_layers,
         coupling_design='spline',
-        coupling_settings=coupling_settings,
+        coupling_settings=coupling_settings_spline,
         permutation="learnable"
     )
 
@@ -341,7 +331,7 @@ def load_model(model_id: int, n_params: int, generative_model,
 
     checkpoint_path = amortizer_folder + '/' + amortizer_name
     os.makedirs(amortizer_folder, exist_ok=True)
-    print(checkpoint_path)
+    logger.info(f'Checkpoint path: {checkpoint_path}')
 
     # build the trainer with networks and generative model
     max_to_keep = 7
@@ -351,9 +341,9 @@ def load_model(model_id: int, n_params: int, generative_model,
             # during training, we drop random selection if we want to train on PedCov only
             # during inference, we are not dropping random selection, but we do not inform the network about the selection procedure
             configurator=partial(configurator, prior_mean=prior_mean, prior_std=prior_std,
-                                 drop_random=drop_random_selection, drop_n_households=drop_n_households) if train_network else
+                                 keep_pedcov_only=pedcov_only, drop_n_households=drop_n_households) if train_network else
             partial(configurator, prior_mean=prior_mean, prior_std=prior_std,
-                    not_inform_selection=drop_random_selection, drop_n_households=drop_n_households),
+                    not_inform_selection=pedcov_only, drop_n_households=drop_n_households),
             generative_model=generative_model,
             checkpoint_path=checkpoint_path,
             skip_checks=True,
@@ -366,10 +356,10 @@ def load_model(model_id: int, n_params: int, generative_model,
             # during inference, we are not dropping random selection, but we do not inform the network about the selection procedure
             configurator=partial(configurator_joint, prior_mean=prior_mean, prior_std=prior_std,
                                  make_prior_relative=make_prior_relative,
-                                 drop_random=drop_random_selection) if train_network else
+                                 keep_pedcov_only=pedcov_only) if train_network else
             partial(configurator_joint, prior_mean=prior_mean, prior_std=prior_std,
                     make_prior_relative=make_prior_relative,
-                    not_inform_selection=drop_random_selection),
+                    not_inform_selection=pedcov_only),
             generative_model=generative_model,
             checkpoint_path=checkpoint_path,
             skip_checks=True,
@@ -396,7 +386,7 @@ def load_model(model_id: int, n_params: int, generative_model,
         )
 
         end_time = perf_counter()
-        print(f'training time: {(end_time - start_time) / 60} minutes')
+        logger.info(f'training time: {(end_time - start_time) / 60} minutes')
     else:
         trainer.load_pretrained_network()
         history = trainer.loss_history.get_plottable()
@@ -404,18 +394,18 @@ def load_model(model_id: int, n_params: int, generative_model,
     if 'val_losses' in history.keys():
         # Check if training converged
         if np.isnan(history['val_losses'].iloc[-1]).any():
-            print('Training failed with NaN loss at the end')
+            logger.warning('Training failed with NaN loss at the end')
             if np.isnan(history['val_losses'].iloc[-max_to_keep:]).all():
-                print('Training failed with NaN loss for all latest checkpoints')
+                logger.warning('Training failed with NaN loss for all latest checkpoints')
 
         # Find the checkpoint with the lowest validation loss out of the last 7
         recent_losses = history['val_losses'].iloc[-max_to_keep:]
         best_valid_epoch = recent_losses['Loss'].idxmin() + 1  # checkpoints are 1-based indexed
         new_checkpoint = trainer.manager.latest_checkpoint.rsplit('-', 1)[0] + f'-{best_valid_epoch}'
         trainer.checkpoint.restore(new_checkpoint)
-        print("Networks loaded from {}".format(new_checkpoint))
-        print(f"Best validation loss: {recent_losses['Loss'].min()}")
+        logger.info(f"Best validation loss at epoch {best_valid_epoch}")
+        logger.info(f"Networks loaded from {new_checkpoint}")
     else:
-        print('No validation losses found, using latest checkpoint')
+        logger.warning('No validation losses found in history')
 
     return trainer, amortizer_name
