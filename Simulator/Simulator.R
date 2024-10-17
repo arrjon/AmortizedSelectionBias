@@ -243,12 +243,12 @@ compute_foi <- function(data=NULL, ind=NULL, susc=NULL, t=NULL, variant=NULL, ge
 data_selection <- function(d, variant, method, verbose=F) {
   
   # Determine counts of households (total, depending on index case and depending on status of inclusion case)
-  if(variant=="alpha") tot_hh <- 84 #128
-  else if(variant=="omicron") tot_hh <- 46 #54
+  if(variant=="alpha") tot_hh <- 128 #84
+  else if(variant=="omicron") tot_hh <- 54 #46
   tot_hh_a <- ceiling(tot_hh/5) # 1/5 of hh are included through asympto children
   tot_hh_s <- tot_hh - tot_hh_a # 4/5 of hh are included through sympto children
-  if(variant=="alpha") tot_hh_inclIndex <- 49 #88
-  else if(variant=="omicron") tot_hh_inclIndex <- 36 #44
+  if(variant=="alpha") tot_hh_inclIndex <- 88 #49
+  else if(variant=="omicron") tot_hh_inclIndex <- 44 #36
   
   # available households
   hh <- unique(d$id_hh)
