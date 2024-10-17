@@ -199,8 +199,8 @@ compute_foi <- function(data=NULL, ind=NULL, susc=NULL, t=NULL, variant=NULL, ge
   beta <- par$beta
   delta <- par$delta
     
-  mu_inf <- par$mu_inf #c(SC = 1, SA= 1, AI = 1, AC = 1, AA = 1)
-  mu_susc <- par$mu_susc #c(C = 1, A = 1)
+  mu_inf <- par$mu_inf #c(SC = 1, SI= 1, AI = 1, AC = 1, AA = 1)
+  mu_susc <- par$mu_susc #c(C = 1, I = 1)
   mu_protect <- par$mu_protect #c(acq = 0.8, transm = 0.8)
   
   infecteds <- data$id_patient[!(data$id_patient %in% susc)]
@@ -217,7 +217,7 @@ compute_foi <- function(data=NULL, ind=NULL, susc=NULL, t=NULL, variant=NULL, ge
     
     # Susceptibility of ind depending on age and symptoms
     if(data$age[data$id_patient==ix]==1 & data$infect_status[data$id_patient==ix]==1) proba_inf_ix_ind <- proba_inf_ix_ind *mu_inf['SC'] # sympt children
-    else if(data$age[data$id_patient==ix]==2 & data$infect_status[data$id_patient==ix]==1) proba_inf_ix_ind <- proba_inf_ix_ind *mu_inf['SA'] # sympt adults
+    else if(data$age[data$id_patient==ix]==0 & data$infect_status[data$id_patient==ix]==1) proba_inf_ix_ind <- proba_inf_ix_ind *mu_inf['SI'] # sympt infants
     else if(data$age[data$id_patient==ix]==0 & data$infect_status[data$id_patient==ix]==2) proba_inf_ix_ind <- proba_inf_ix_ind *mu_inf['AI'] # asympt infants
     else if(data$age[data$id_patient==ix]==1 & data$infect_status[data$id_patient==ix]==2) proba_inf_ix_ind <- proba_inf_ix_ind *mu_inf['AC'] # asympt children
     else if(data$age[data$id_patient==ix]==2 & data$infect_status[data$id_patient==ix]==2) proba_inf_ix_ind <- proba_inf_ix_ind *mu_inf['AA'] # asympt adults
@@ -230,7 +230,7 @@ compute_foi <- function(data=NULL, ind=NULL, susc=NULL, t=NULL, variant=NULL, ge
   
   # Susceptibility of ind depending on age
   if(data$age[data$id_patient==ind]==1) beta_foyer <- beta_foyer *mu_susc['C'] # children
-  else if(data$age[data$id_patient==ind]==2) beta_foyer <- beta_foyer *mu_susc['A'] # adults
+  else if(data$age[data$id_patient==ind]==0) beta_foyer <- beta_foyer *mu_susc['I'] # infants
   # Susceptibility of ind depending on protection
   if(data$protected[data$id_patient==ind]==1) beta_foyer <- beta_foyer *mu_protect['acq']
   
@@ -395,11 +395,11 @@ simulate_and_reformat <- function(par=NULL, id=1) {
     "beta" = par$beta,  # baseline transmission rate  (beta / (household size / 4)^delta)
     "delta" = par$delta,  # baseline transmission rate (beta / (household size / 4)^delta)
     # relative infectiousness by age and symptomatic status
-    "mu_inf" = c(SC = par$mu_inf_SC, SA = par$mu_inf_SA,
-                 # symptomatic child, symptomatic adult
+    "mu_inf" = c(SC = par$mu_inf_SC, SI = par$mu_inf_SI,
+                 # symptomatic child, symptomatic infant
                  AI = par$mu_inf_AI, AC = par$mu_inf_AC, AA = par$mu_inf_AA),
                  # asymptomatic infant, asymptomatic child, asymptomatic adult
-    "mu_susc" = c(C = par$mu_susc_C, A = par$mu_susc_A),  # relative susceptibility by age (child, adult)
+    "mu_susc" = c(C = par$mu_susc_C, I = par$mu_susc_I),  # relative susceptibility by age (child, infant)
     "mu_protect" = c(acq = par$mu_protect_acq,  # relative susceptibility by protection
     transm = par$mu_protect_transm)  # relative infectiousness by protection
 
@@ -427,12 +427,12 @@ simulate_and_reformat <- function(par=NULL, id=1) {
 #              "beta" = 0.2,
 #              "delta" = 0.3,
 #              'mu_inf_SC' = 1, 
-#              'mu_inf_SA' = 1, 
+#              'mu_inf_SI' = 1, 
 #              'mu_inf_AI' = 1, 
 #              'mu_inf_AC' = 1, 
 #              'mu_inf_AA' = 1,
 #              'mu_susc_C' = 1, 
-#              'mu_susc_A' = 1,
+#              'mu_susc_I' = 1,
 #              'mu_protect_acq'  = 0.1, 
 #              'mu_protect_transm'  = 0.8,
 #              "variant" = "alpha",
