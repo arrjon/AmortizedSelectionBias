@@ -253,19 +253,19 @@ data_selection <- function(d, variant, method, verbose=F) {
   # available households
   hh <- unique(d$id_hh)
   hh_origin <- unique(d$id_hh_origin)
-
+  
   if(method=="original_random") {
     # from each original household ids sample one random representative
     # group by id_hh_origin and sample one id_hh per group
     sampled_households <- d %>%
-     group_by(id_hh_origin) %>%
-     summarise(id_hh = sample(unique(id_hh), 1)) %>%
-     ungroup()
-
+      group_by(id_hh_origin) %>%
+      summarise(id_hh = sample(unique(id_hh), 1)) %>%
+      ungroup()
+    
     # filter the original dataframe to keep only the sampled households
     recruit <- d %>%
-     semi_join(sampled_households, by = c("id_hh_origin", "id_hh"))
-
+      semi_join(sampled_households, by = c("id_hh_origin", "id_hh"))
+    
   } else if(method=="random") {
     # random sample from all of the households
     sel <- sample(hh, tot_hh) # just sample a total number of households
@@ -299,12 +299,11 @@ data_selection <- function(d, variant, method, verbose=F) {
           u <- sample(possible_hh, 1) # pick one randomly
         }
       }
-
+      
       if (method %in% c("pedcov", "original_pedcov")) {
         # If inclusion case is an adult --> exclude and go to next iteration
         if(d$age_exact[d$id_hh==u & d$is_incluCase==1] > 18 ) {
           not_selected <- not_selected +1
-          #hh <- hh[hh!=u] # Remove this hh from the list of pickable hh
           hh <- setdiff(hh, u)
           next
         }
@@ -332,92 +331,92 @@ data_selection <- function(d, variant, method, verbose=F) {
           next
         }
       }
-          
+      
       # If inclusion case has not had symptoms or test yet --> exclude
       if( d$date_sympt[d$id_hh==u & d$is_incluCase==1] >= d$incl_dt[d$id_hh==u & d$is_incluCase==1]) {
         not_selected <- not_selected +1
-        #hh <- hh[hh!=u] # Remove this hh from the list of pickable hh
         hh <- setdiff(hh, u)
         next
       }
-
+      
       if(method=="samplingIG") {
         
         # If inclusion case is symptomatic (and the count for this type is not full)
         if(d$infect_status[d$id_hh==u & d$is_incluCase==1]==1 & hh_s<tot_hh_s) {
-            recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
-            hh_s <- hh_s+1 # increase count of sympto incl cases
-            hh_inclIndex <- hh_inclIndex + 1 # increase count of incl case also index
+          recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
+          hh_s <- hh_s+1 # increase count of sympto incl cases
+          hh_inclIndex <- hh_inclIndex + 1 # increase count of incl case also index
         }
         # Else if inclusion case is asymptomatic (and the count for this type is not full)
         else if(d$infect_status[d$id_hh==u & d$is_incluCase==1]==2 & hh_a<tot_hh_a) {
+          recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
+          hh_a <- hh_a+1 # increase count of asympto incl cases
+          hh_inclIndex <- hh_inclIndex + 1 # increase count of incl case also index
+        }
+        # Else if the count for this type of sympto status is already full --> exclude
+        else not_selected <- not_selected +1
+        
+      } else {
+        
+        # Inclusion case is also index case (and the count for this type is not full)
+        if( d$is_index[d$id_hh==u & d$is_incluCase==1] == 1 & hh_inclIndex < tot_hh_inclIndex ) {
+          
+          if(d$infect_status[d$id_hh==u & d$is_incluCase==1]==1 & hh_s<tot_hh_s) { # If inclusion case is symptomatic (and the count for this type is not full)
+            recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
+            hh_s <- hh_s+1 # increase count of sympto incl cases
+            hh_inclIndex <- hh_inclIndex + 1 # increase count of incl case also index
+            
+            hh_origin <- setdiff(hh_origin, u_origin) # Remove this hh from the list of pickable hh_origin
+          } else if(d$infect_status[d$id_hh==u & d$is_incluCase==1]==2 & hh_a<tot_hh_a) { # If inclusion case is asymptomatic (and the count for this type is not full)
             recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
             hh_a <- hh_a+1 # increase count of asympto incl cases
             hh_inclIndex <- hh_inclIndex + 1 # increase count of incl case also index
-        }
-        # Elsef the count for this type of sympto status is already full --> exclude
-        else not_selected <- not_selected +1
+            
+            hh_origin <- setdiff(hh_origin, u_origin) # Remove this hh from the list of pickable hh_origin
+          } else not_selected <- not_selected +1 # If the count for this type of sympto status is already full --> exclude
           
-      } else {
-          
-        # Inclusion case is also index case (and the count for this type is not full)
-        if( d$is_index[d$id_hh==u & d$is_incluCase==1] == 1 & hh_inclIndex < tot_hh_inclIndex ) {
-        
-            if(d$infect_status[d$id_hh==u & d$is_incluCase==1]==1 & hh_s<tot_hh_s) { # If inclusion case is symptomatic (and the count for this type is not full)
-                recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
-                hh_s <- hh_s+1 # increase count of sympto incl cases
-                hh_inclIndex <- hh_inclIndex + 1 # increase count of incl case also index
-
-                hh_origin <- setdiff(hh_origin, u_origin) # Remove this hh from the list of pickable hh_origin
-            } else if(d$infect_status[d$id_hh==u & d$is_incluCase==1]==2 & hh_a<tot_hh_a) { # If inclusion case is asymptomatic (and the count for this type is not full)
-                recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
-                hh_a <- hh_a+1 # increase count of asympto incl cases
-                hh_inclIndex <- hh_inclIndex + 1 # increase count of incl case also index
-
-                hh_origin <- setdiff(hh_origin, u_origin) # Remove this hh from the list of pickable hh_origin
-            } else not_selected <- not_selected +1 # If the count for this type of sympto status is already full --> exclude
-                
-        # Inclusion case is not the index case (and the count for this type is not full)
-        # (ie there are household members infected visibly before inclusion case)
+          # Inclusion case is not the index case (and the count for this type is not full)
+          # (ie there are household members infected visibly before inclusion case)
         } else if( d$is_index[d$id_hh==u & d$is_incluCase==1] == 0 & hh_inclNotIndex < tot_hh-tot_hh_inclIndex) {
-        
-            if(d$infect_status[d$id_hh==u & d$is_incluCase==1]==1 & hh_s<tot_hh_s) { # If inclusion case is symptomatic (and the count for this type is not full)
-              recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
-              hh_s <- hh_s+1 # increase count of sympto incl cases
-              hh_inclNotIndex <- hh_inclNotIndex + 1 # increase count of incl case not index
-
-              hh_origin <- setdiff(hh_origin, u_origin) # Remove this hh from the list of pickable hh_origin
-            } else if(d$infect_status[d$id_hh==u & d$is_incluCase==1]==2 & hh_a<tot_hh_a) { # If inclusion case is asymptomatic (and the count for this type is not full)
-              recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
-              hh_a <- hh_a+1 # increase count of asympto incl cases
-              hh_inclNotIndex <- hh_inclNotIndex + 1 # increase count of incl case not index
-
-              hh_origin <- setdiff(hh_origin, u_origin) # Remove this hh from the list of pickable hh_origin
-            } else not_selected <- not_selected +1 # If the count for this type of sympto status is already full --> exclude
-        
-            if(verbose) message(paste("sympto", hh_s, "asympto", hh_a))
-        
+          
+          if(d$infect_status[d$id_hh==u & d$is_incluCase==1]==1 & hh_s<tot_hh_s) { # If inclusion case is symptomatic (and the count for this type is not full)
+            recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
+            hh_s <- hh_s+1 # increase count of sympto incl cases
+            hh_inclNotIndex <- hh_inclNotIndex + 1 # increase count of incl case not index
+            
+            hh_origin <- setdiff(hh_origin, u_origin) # Remove this hh from the list of pickable hh_origin
+          } else if(d$infect_status[d$id_hh==u & d$is_incluCase==1]==2 & hh_a<tot_hh_a) { # If inclusion case is asymptomatic (and the count for this type is not full)
+            recruit <- rbind(recruit, d[d$id_hh==u,]) # keep it
+            hh_a <- hh_a+1 # increase count of asympto incl cases
+            hh_inclNotIndex <- hh_inclNotIndex + 1 # increase count of incl case not index
+            
+            hh_origin <- setdiff(hh_origin, u_origin) # Remove this hh from the list of pickable hh_origin
+          } else not_selected <- not_selected +1 # If the count for this type of sympto status is already full --> exclude
+          
+          if(verbose) message(paste("sympto", hh_s, "asympto", hh_a))
+          
         } else not_selected <- not_selected +1 # If the count for this type of incl case / index is already full --> exclude
-      
+        
         hh <- setdiff(hh, u) # Remove this hh from the list of pickable hh
-
+        
       }
     }
+  }
   
   # pedcov_recruit <- select(pedcov_recruit, id_patient, id_hh, hh_size, date_sympt, infect_status, end_followup, age, protected, age_exact)
   # write.table(pedcov_recruit, paste0("../Data/pedcovid_data_formatted_",variant,"_pedcovid.txt"), quote=F, row.names=F, col.names=F)
-
+  
   # randomize order of households
   randomized_households <- recruit %>%
     distinct(id_hh) %>%
     mutate(random_order = sample(n()))
-
+  
   # join the random order back to the original dataframe
   randomized_recruit <- recruit %>%
     left_join(randomized_households, by = "id_hh") %>%
     arrange(random_order) %>%
     select(-random_order)
-
+  
   return(randomized_recruit)
 }
 
@@ -436,11 +435,11 @@ simulate_and_reformat <- function(par=NULL, id=1) {
     "mu_inf" = c(SC = par$mu_inf_SC, SI = par$mu_inf_SI,
                  # symptomatic child, symptomatic infant
                  AI = par$mu_inf_AI, AC = par$mu_inf_AC, AA = par$mu_inf_AA),
-                 # asymptomatic infant, asymptomatic child, asymptomatic adult
+    # asymptomatic infant, asymptomatic child, asymptomatic adult
     "mu_susc" = c(C = par$mu_susc_C, I = par$mu_susc_I),  # relative susceptibility by age (child, infant)
     "mu_protect" = c(acq = par$mu_protect_acq,  # relative susceptibility by protection
-    transm = par$mu_protect_transm)  # relative infectiousness by protection
-
+                     transm = par$mu_protect_transm)  # relative infectiousness by protection
+    
     # bias in study:
     # - overestimation of mu_inf_SA, mu_inf_AA (infectiousness of adults)
     # - underestimation of mu_susc_A (susceptibility of adults)
@@ -464,14 +463,14 @@ simulate_and_reformat <- function(par=NULL, id=1) {
 # test <- list("alpha" = 0.1,
 #              "beta" = 0.2,
 #              "delta" = 0.3,
-#              'mu_inf_SC' = 1, 
-#              'mu_inf_SI' = 1, 
-#              'mu_inf_AI' = 1, 
-#              'mu_inf_AC' = 1, 
+#              'mu_inf_SC' = 1,
+#              'mu_inf_SI' = 1,
+#              'mu_inf_AI' = 1,
+#              'mu_inf_AC' = 1,
 #              'mu_inf_AA' = 1,
-#              'mu_susc_C' = 1, 
+#              'mu_susc_C' = 1,
 #              'mu_susc_I' = 1,
-#              'mu_protect_acq'  = 0.1, 
+#              'mu_protect_acq'  = 0.1,
 #              'mu_protect_transm'  = 0.8,
 #              "variant" = "alpha",
 #              "selection_procedure" = "pedcov")

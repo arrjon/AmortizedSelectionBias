@@ -7,10 +7,12 @@ pandas2ri.activate()
 r.source('Simulator/Simulator.R')
 model_r = r['simulate_and_reformat']
 
-param_names = ['alpha', 'beta', 'delta',
+PARAM_NAMES = ['alpha', 'beta', 'delta',
                'mu_inf_SC', 'mu_inf_SA', 'mu_inf_AI', 'mu_inf_AC', 'mu_inf_AA',
                'mu_susc_C', 'mu_susc_A',
                'mu_protect_acq', 'mu_protect_transm']
+
+PROCEDURES = ['pedcov', 'random', 'original_pedcov', 'original_random', 'adult', 'sampling1', 'samplingIG']
 
 
 def simulator(log_params: np.ndarray,
@@ -29,9 +31,9 @@ def simulator(log_params: np.ndarray,
     """
     if variant not in ['alpha', 'omicron']:
         raise ValueError(f"Variant '{variant}' not supported. Must be 'alpha' or 'omicron'.")
-    if selection_procedure not in ['pedcov', 'random', 'original_pedcov', 'original_random']:
+    if selection_procedure not in PROCEDURES:
         raise ValueError(f"Selection procedure '{selection_procedure}' not supported. "
-                         f"Must be 'pedcov', 'random', 'original_pedcov' or 'original_random'.")
+                         f"Must be one of {PROCEDURES}.")
 
     if fixed_parameters_dict is None:
         fixed_parameters = []
@@ -43,7 +45,7 @@ def simulator(log_params: np.ndarray,
     # create dict from param_names, params might have different length
     par_dict = {}
     p_i = 0
-    for name in param_names:
+    for name in PARAM_NAMES:
         if name in fixed_parameters:
             par_dict.update({name: fixed_parameters[name]})
         # all parameters besides alpha and delta are log-transformed
@@ -92,7 +94,7 @@ def simulator_both_variants(log_params: np.ndarray,
     for variant in ['alpha', 'omicron']:
         par_dict = {}
 
-        for name in param_names:
+        for name in PARAM_NAMES:
             if name in fixed_parameters_dict[variant]:
                 par_dict.update({name: fixed_parameters_dict[variant][name]})
             # all parameters besides alpha and delta are log-transformed
