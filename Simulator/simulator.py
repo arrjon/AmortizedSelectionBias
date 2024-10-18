@@ -8,8 +8,9 @@ r.source('Simulator/Simulator.R')
 model_r = r['simulate_and_reformat']
 
 PARAM_NAMES = ['alpha', 'beta', 'delta',
-               'mu_inf_SC', 'mu_inf_SA', 'mu_inf_AI', 'mu_inf_AC', 'mu_inf_AA',
-               'mu_susc_C', 'mu_susc_A',
+               'mu_inf_SC', 'mu_inf_SI',
+               'mu_inf_AI', 'mu_inf_AC', 'mu_inf_AA',
+               'mu_susc_C', 'mu_susc_I',
                'mu_protect_acq', 'mu_protect_transm']
 
 PROCEDURES = ['pedcov', 'random', 'original_pedcov', 'original_random', 'adult', 'sampling1', 'samplingIG']
@@ -79,9 +80,9 @@ def simulator_both_variants(log_params: np.ndarray,
     :param fixed_parameters_dict: dictionary with fixed parameters for each variant
     :return: simulated data as numpy array
     """
-    if selection_procedure not in ['pedcov', 'random', 'original_pedcov', 'original_random']:
+    if selection_procedure not in PROCEDURES:
         raise ValueError(f"Selection procedure '{selection_procedure}' not supported. "
-                         f"Must be 'pedcov', 'random', 'original_pedcov' or 'original_random'.")
+                         f"Must be one of {PROCEDURES}.")
 
     if fixed_parameters_dict is None:
         fixed_parameters_dict = {'alpha': [], 'omicron': []}

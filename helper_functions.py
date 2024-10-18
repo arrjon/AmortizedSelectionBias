@@ -27,16 +27,16 @@ def dict_to_named_list(dct):
 
 
 # one-hot-encoding
-dict_encoding = {
+DICT_ENCODING = {
     'infect_status': {
         0: [0, 0],  # not infected
         1: [1, 0],  # infected and symptomatic
         2: [0, 1],  # infected and asymptomatic
     },
     'age': {
-        0: [0, 0],  # <6 years old
-        1: [1, 0],  # 6-11 years old
-        2: [0, 1],  # >11 years old
+        0: [0, 0],  # <6 years old, I
+        1: [1, 0],  # 6-11 years old, C
+        2: [0, 1],  # >11 years old, A
     },
     'protected': {
         0: [0],  # not protected
@@ -49,7 +49,7 @@ DATE_MAX = 1000  # maximum date in the dataset
 
 def encode_row(row):
     encoded = [row['date_sympt_norm']]
-    for column, encoding in dict_encoding.items():
+    for column, encoding in DICT_ENCODING.items():
         encoded.extend(encoding[row[column]])
 
     return encoded
