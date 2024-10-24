@@ -455,7 +455,7 @@ simulate_and_reformat <- function(par=NULL, id=1) {
   
   # select columns
   sim_data <- select(recruit, id_patient, id_hh, id_hh_origin, hh_size, date_sympt, 
-                     infect_status, end_followup, age, protected, variant, 
+                     infect_status, end_followup, age, age_exact, protected, variant,
                      id_simu, select_process)
   return(sim_data)
 }

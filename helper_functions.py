@@ -1,4 +1,6 @@
-from typing import Union, Optional
+from dataclasses import dataclass
+from enum import IntEnum
+from typing import Dict, List, Union, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -26,17 +28,28 @@ def dict_to_named_list(dct):
     return dct
 
 
-# one-hot-encoding
-DICT_ENCODING = {
+class InfectionStatus(IntEnum):
+    """Enumeration for infection status values"""
+    NOT_INFECTED = 0
+    INFECTED_SYMPTOMATIC = 1
+    INFECTED_ASYMPTOMATIC = 2
+
+
+@dataclass
+class ProcessingConfig:
+    """Configuration parameters for data processing"""
+    DATE_MAX: float = 1000.  # maximum date in the dataset
+    AGE_MAX: float = 100.
+    USE_ONE_HOT: bool = True
+    NOT_INFECTED_DATE: float = 1000.  # special value indicating not infected until end of follow up
+
+
+# One-hot encoding dictionaries
+ENCODING_DICT = {
     'infect_status': {
-        0: [0, 0],  # not infected
-        1: [1, 0],  # infected and symptomatic
-        2: [0, 1],  # infected and asymptomatic
-    },
-    'age': {
-        0: [0, 0],  # <6 years old, I
-        1: [1, 0],  # 6-11 years old, C
-        2: [0, 1],  # >11 years old, A
+        InfectionStatus.NOT_INFECTED: [0, 0],
+        InfectionStatus.INFECTED_SYMPTOMATIC: [1, 0],
+        InfectionStatus.INFECTED_ASYMPTOMATIC: [0, 1],
     },
     'protected': {
         0: [0],  # not protected
@@ -44,94 +57,202 @@ DICT_ENCODING = {
     }
 }
 
-DATE_MAX = 1000  # maximum date in the dataset
+
+def validate_input_data(df: pd.DataFrame) -> None:
+    """
+    Validates input DataFrame for required columns and data integrity.
+
+    Args:
+        df: Input DataFrame to validate
+
+    Raises:
+        ValueError: If required columns are missing or data integrity issues are found
+    """
+    required_columns = {'id_hh', 'date_sympt', 'infect_status', 'age_exact', 'protected', 'end_followup'}
+    missing_columns = required_columns - set(df.columns)
+    if missing_columns:
+        raise ValueError(f"Missing required columns: {missing_columns}")
+
+    # Validate data types and ranges
+    if df['id_hh'].isna().any():
+        raise ValueError("id_hh contains missing values")
+
+    # Convert infection status to integers and validate
+    valid_statuses = set(InfectionStatus)
+    actual_statuses = set(df['infect_status'].astype(int).unique())
+    invalid_statuses = actual_statuses - valid_statuses
+    if invalid_statuses:
+        raise ValueError(f"Invalid infection status values found: {invalid_statuses}")
 
 
-def encode_row(row):
-    encoded = [row['date_sympt_norm']]
-    for column, encoding in DICT_ENCODING.items():
-        encoded.extend(encoding[row[column]])
+def encode_row(row: pd.Series, encoding_dict: Dict) -> List[float]:
+    """
+    Encodes a single row of data using the provided encoding dictionary.
 
-    return encoded
+    Args:
+        row: DataFrame row to encode
+        encoding_dict: Dictionary containing encoding mappings
+
+    Returns:
+        List of encoded values
+    """
+    try:
+        encoded = [row['date_sympt_norm']]
+        for column, encoding in encoding_dict.items():
+            encoded.extend(encoding[row[column]])
+        return encoded
+    except KeyError as e:
+        raise KeyError(f"Missing required column for encoding: {e}")
+    except Exception as e:
+        raise ValueError(f"Error encoding row: {e}")
+
+
+def normalize_dates_and_age(
+        df: pd.DataFrame,
+        config: ProcessingConfig
+) -> pd.DataFrame:
+    """
+    Normalizes dates and age values in the DataFrame.
+
+    Args:
+        df: Input DataFrame
+        config: Processing configuration
+
+    Returns:
+        DataFrame with normalized values
+    """
+    df = df.copy()
+
+    # Normalize symptomatic dates
+    mask_infected = df['date_sympt'] != config.NOT_INFECTED_DATE
+    df.loc[mask_infected, 'date_sympt_norm'] = df.loc[mask_infected, 'date_sympt'] / config.DATE_MAX
+
+    # Normalize end followup dates
+    df['end_followup_norm'] = df['end_followup'] / config.DATE_MAX
+
+    # For non-infected cases, use end_followup_norm
+    df.loc[~mask_infected, 'date_sympt_norm'] = df.loc[~mask_infected, 'end_followup_norm']
+
+    # Normalize age
+    df['age_exact_norm'] = df['age_exact'] / config.AGE_MAX
+
+    return df
+
+
+def process_household(
+        df_hh: pd.DataFrame,
+        minimal_length: int,
+        config: ProcessingConfig
+) -> np.ndarray:
+    """
+    Processes data for a single household.
+
+    Args:
+        df_hh: DataFrame containing single household data
+        minimal_length: Minimum sequence length required
+        config: Processing configuration
+
+    Returns:
+        Processed household data as numpy array (n_features, time_steps)
+    """
+    if config.USE_ONE_HOT:
+        encoded_data = df_hh.apply(lambda row: encode_row(row, ENCODING_DICT), axis=1)
+        encoded_household = np.array(encoded_data.tolist())
+
+        # Create follow-up array
+        follow_up = -np.ones((encoded_household.shape[1] + 1, 1))
+        follow_up[0, 0] = df_hh['end_followup_norm'].iloc[0]
+
+        # Construct household array without follow-up
+        household = np.concatenate((
+            encoded_household[:, :3],  # measurement time, infection status
+            df_hh['age_exact_norm'].values[:, np.newaxis],
+            encoded_household[:, 3][:, np.newaxis],  # protection status
+        ), axis=1)
+
+        # Sort only the main data by date (excluding follow-up)
+        order = np.argsort(household[:, 0])
+        household = household[order]
+
+        # Add follow-up as the last row after sorting
+        household = np.concatenate((household, follow_up.T), axis=0)
+        household = household.T  # transpose to have shape (n_features, n_members)
+
+    else:
+        # Construct main household data
+        household = np.stack((
+            df_hh['date_sympt_norm'].values,
+            df_hh['infect_status'].values,
+            df_hh['age_exact_norm'].values,
+            df_hh['protected'].values
+        ))
+
+        # Sort main data by date
+        order = np.argsort(household[0])
+        household = household[:, order]
+
+        # Add follow-up data as the last column
+        follow_up = np.array([[df_hh['end_followup_norm'].iloc[0]], [-1], [-1], [-1]])
+        household = np.concatenate((household, follow_up), axis=1)
+
+    # Pad if necessary
+    if household.shape[1] < minimal_length:
+        padding = np.zeros((household.shape[0], minimal_length - household.shape[1]))
+        household = np.concatenate([padding, household], axis=1)
+    return household
 
 
 def normalize_household_data(
         df: pd.DataFrame,
         minimal_length: int,
-        use_one_hot_encoding: bool = True
-) -> Union[np.ndarray, list]:
+        config: ProcessingConfig = ProcessingConfig()
+) -> Union[np.ndarray, List[np.ndarray]]:
     """
-    Normalizes the household data and returns it as a numpy array or list.
-    Patients in a household are order by event date.
+    Normalizes household data and returns it as a numpy array or list.
 
-    Parameters
-    ----------
-    df : pd.DataFrame - the household data
-    minimal_length : int - the minimal length of the household data: in long format, this is the total sequence length,
-                    in list format, this is the minimal number of people in a household. In both cases, we use zero
-                    padding at the beginning of the sequence to reach this length.
-    use_one_hot_encoding : bool - if True, uses one-hot encoding for the features
+    Args:
+        df: Input DataFrame containing household data
+        minimal_length: Minimum sequence length required
+        config: Processing configuration
+
+    Returns:
+        Processed household data as either numpy array (n_households x time_steps x n_features)
+         or list depending on minimal_length
+
+    Raises:
+        ValueError: If input data validation fails
     """
-    df = df.copy()
-    all_households = []
+    try:
+        # Validate input data
+        validate_input_data(df)
 
-    # date_sympt = 1000 is not infected
-    df.loc[df['date_sympt'] != 1000, 'date_sympt_norm'] = df.loc[df['date_sympt'] != 1000, 'date_sympt'] / DATE_MAX
-    df['end_followup_norm'] = df['end_followup'] / DATE_MAX
-    #df.loc[df['date_sympt'] == 1000, 'date_sympt_norm'] = 1  # when sorting it stays at the end
-    df.loc[df['date_sympt'] == 1000, 'date_sympt_norm'] = df.loc[df['date_sympt'] == 1000, 'end_followup_norm']
+        # Normalize dates and age
+        df = normalize_dates_and_age(df, config)
 
-    unique_households = df['id_hh'].unique()
+        # Process each household
+        all_households = []
+        for id_hh in df['id_hh'].unique():
+            df_hh = df[df['id_hh'] == id_hh]
+            household = process_household(df_hh, minimal_length, config)
+            all_households.append(household.T)  # switch now to (time_steps x n_features)
 
-    for i, id_hh in enumerate(unique_households):
-        df_hh = df[df['id_hh'] == id_hh]
-        if use_one_hot_encoding:
-            # One-hot encode specific columns
-            encoded_data = df_hh.apply(lambda row: encode_row(row), axis=1)
-            encoded_household = np.array(encoded_data.tolist())
-            follow_up = -np.ones((1, encoded_household.shape[1]))
-            follow_up[0, 0] = df_hh['end_followup_norm'].values[0]
+        # Stack or return as list based on minimal_length
+        if minimal_length > 0:
+            return np.stack([h for h in all_households])  # now we get (n_households x time_steps x n_features)
+        return all_households
 
-            household = np.concatenate((
-                encoded_household,
-                follow_up
-            ), axis=0).T
-        else:
-            # household as a list
-            household = np.stack((
-                df_hh['date_sympt_norm'].values,
-                df_hh['infect_status'].values,
-                df_hh['age'].values,
-                df_hh['protected'].values
-            ))
-            household = np.concatenate((
-                household,
-                [[df_hh['end_followup_norm'].values[0]],
-                 [-1], [-1], [-1]]
-            ), axis=1)
+    except Exception as e:
+        raise ValueError(f"Error processing household data: {e}")
 
-        # there is no specific order in the household, so order by date of symptoms
-        order = np.argsort(household[0])
-        household = household[:, order]
-
-        if household.shape[1] < minimal_length:
-            # pad sequence length with zeros, each household gets padded individually
-            household = np.concatenate([np.zeros((household.shape[0],
-                                                  minimal_length - household.shape[1])),
-                                        household], axis=1)
-        all_households.append(household)
-
-    if minimal_length > 0:
-        return np.stack([h.T for h in all_households])
-    # households are returned as list since might have different lengths
-    return all_households
-
-
-def shorten_follow_up_time(data: np.ndarray, max_followup: int) -> np.ndarray:
+def shorten_follow_up_time(
+        data: np.ndarray,
+        max_followup: int,
+        config: ProcessingConfig = ProcessingConfig()
+) -> np.ndarray:
     """
     Shorten the follow-up time to a given maximum follow-up time. Input can be a single simulation or multiple.
     """
-    max_followup = max_followup / DATE_MAX  # normalise the same way as the dates
+    max_followup = max_followup / config.DATE_MAX  # normalise the same way as the dates
 
     if data.ndim == 3:
         # only one simulation with multiple households
