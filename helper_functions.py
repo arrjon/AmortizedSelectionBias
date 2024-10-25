@@ -521,3 +521,53 @@ def plot_attention_scores_plotly(
         height=600
     )
     fig.show()
+
+
+def percentage_infection_age(data: np.ndarray, param_name) -> np.ndarray:
+    # infection_type: 0=not infected (default case), 1=symptomatic, 2=asymptomatic
+    # age_group: 0=infants (default case), 1=children, 2=adults
+    if param_name[-1] == 'A':
+        age_group = 2
+    elif param_name[-1] == 'C':
+        age_group = 1
+    else:
+        age_group = 0
+    if param_name[-2] == 'A':
+        infection_types = [2]
+    elif param_name[-2] == 'S':
+        infection_types = [1]
+    else:
+        # parameter is susceptibility
+        infection_types = [1, 2]
+
+    percentages = np.zeros(data.shape[0])
+    for i, replicate in enumerate(data):
+        for infection_type in infection_types:
+            # Extract the infection and age columns
+            time_points = replicate[:, :, 0]  # Time point
+            infection = replicate[:, :, 1:3]  # Infection columns (one-hot encoded with first dropped)
+            age = replicate[:, :, 3:5]  # Age group columns (one-hot encoded with first dropped)
+
+            # only count non zeros rows and remove end of follow up
+            valid_time_mask = (time_points > 0)
+            valid_time_mask[:, -1] = False  # exclude the follow-up time
+
+            # Handle infection_type and age_group for default case (not encoded as 1)
+            if infection_type == 0:
+                infection_mask = np.all(infection == 0, axis=-1)
+            else:
+                infection_mask = infection[:, :, infection_type - 1] == 1
+
+            if age_group == 0:
+                age_mask = np.all(age == 0, axis=-1)
+            else:
+                age_mask = age[:, :, age_group - 1] == 1
+
+            # Combine masks to get the desired people
+            combined_mask = infection_mask & age_mask & valid_time_mask
+
+            # Calculate percentage
+            total_people = replicate[valid_time_mask].shape[0]
+            selected_people = replicate[combined_mask]
+            percentages[i] += (selected_people.shape[0] / total_people) if total_people > 0 else 0
+    return percentages
