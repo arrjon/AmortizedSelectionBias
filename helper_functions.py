@@ -34,6 +34,12 @@ class InfectionStatus(IntEnum):
     INFECTED_SYMPTOMATIC = 1
     INFECTED_ASYMPTOMATIC = 2
 
+class AgeGroup(IntEnum):
+    """Enumeration for infection status values"""
+    INFANT = 0
+    CHILD = 1
+    OLDER = 2
+
 
 @dataclass
 class ProcessingConfig:
@@ -50,6 +56,11 @@ ENCODING_DICT = {
         InfectionStatus.NOT_INFECTED: [0, 0],
         InfectionStatus.INFECTED_SYMPTOMATIC: [1, 0],
         InfectionStatus.INFECTED_ASYMPTOMATIC: [0, 1],
+    },
+    'age': {
+        AgeGroup.INFANT: [0, 0],
+        AgeGroup.CHILD: [1, 0],
+        AgeGroup.OLDER: [0, 1],
     },
     'protected': {
         0: [0],  # not protected
@@ -165,9 +176,9 @@ def process_household(
 
         # Construct household array without follow-up
         household = np.concatenate((
-            encoded_household[:, :3],  # measurement time, infection status
+            encoded_household[:, :5],  # measurement time, infection status, age group
             df_hh['age_exact_norm'].values[:, np.newaxis],
-            encoded_household[:, 3][:, np.newaxis],  # protection status
+            encoded_household[:, 5][:, np.newaxis],  # protection status
         ), axis=1)
 
         # Sort only the main data by date (excluding follow-up)
@@ -183,6 +194,7 @@ def process_household(
         household = np.stack((
             df_hh['date_sympt_norm'].values,
             df_hh['infect_status'].values,
+            df_hh['age'].values,  # age_group
             df_hh['age_exact_norm'].values,
             df_hh['protected'].values
         ))

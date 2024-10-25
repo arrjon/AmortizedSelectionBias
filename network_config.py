@@ -57,6 +57,11 @@ class CustomLoader:
         return self.get_next_iteration(self.iterations_per_epoch)
 
 
+alpha_community_infection = np.array([0.0005, 0.002, 0.003])
+omicron_community_infection = alpha_community_infection * 10
+community = np.array([alpha_community_infection, omicron_community_infection])
+
+
 def configurator(forward_dict: dict,
                  prior_mean: np.ndarray, prior_std: np.ndarray,
                  not_inform_selection: bool = False, keep_pedcov_only: bool = False, drop_n_households = False) -> dict:
@@ -81,30 +86,29 @@ def configurator(forward_dict: dict,
         params = (params - prior_mean) / prior_std
         out_dict['parameters'] = params.astype(np.float32)
 
+    # Extract context
     # non batchable context can come as a list or as a single value
     if isinstance(forward_dict['sim_non_batchable_context'], str):
-        forward_dict['sim_non_batchable_context'] = [forward_dict['sim_non_batchable_context']] * len \
-            (forward_dict['sim_data'])
-    sim_non_batchable_context = np.array(forward_dict['sim_non_batchable_context']).flatten()
-    sim_batchable_context = np.array(forward_dict['sim_batchable_context']).flatten()
+        forward_dict['sim_non_batchable_context'] = [forward_dict['sim_non_batchable_context']] * len(x)
+    sim_non_batchable_context = np.array(forward_dict['sim_non_batchable_context']).flatten()  # one value per sample
+    sim_batchable_context = np.array(forward_dict['sim_batchable_context'])  # two values per sample
 
-    # Extract context
-    variant_selection = np.array(
-        [[0. if v == 'alpha' else 1., 0. if s == 'pedcov' else 1.]
-         for v, s in zip(sim_non_batchable_context, sim_batchable_context)]
-    )
+    direct_condition = np.zeros((len(x), 3), dtype=np.float32)
+    direct_condition[sim_non_batchable_context == 'omicron', 0] = 1.  #  if variant is alpha=0, omicron=1
+    direct_condition[sim_batchable_context[:, 0] == 'random', 1] = 1.  #  if selection procedure is pedcov=0, random=1
+    direct_condition[:, 2] = (np.log(sim_batchable_context[:, 1].astype(np.float32)) - community.mean()) / community.std()  # alpha value
 
     if keep_pedcov_only:
         logger.warning('Drop all but PedCov')
         not_inform_selection = True
         # Extract context
-        keep_indices = np.array([True if s == 'pedcov' else False for s in sim_batchable_context])
+        keep_indices = np.array(sim_batchable_context[:, 0] == 'pedcov')
         if keep_indices.size == 0:
             # If keep_indices is empty, select a random index to not have an empty batch
             logger.warning("keep_indices is empty, select a random index")
             keep_indices = np.array([np.random.choice(len(sim_batchable_context))])
 
-        variant_selection = variant_selection[keep_indices]
+        direct_condition = direct_condition[keep_indices]
         out_dict['summary_conditions'] = out_dict['summary_conditions'][keep_indices]
         if 'parameters' in out_dict.keys():
             out_dict['parameters'] = out_dict['parameters'][keep_indices]
@@ -112,9 +116,9 @@ def configurator(forward_dict: dict,
     if not_inform_selection:
         # drop second direct condition on selection procedure
         logger.info('Warning: Not informing about selection procedure')
-        variant_selection = variant_selection[:, 0][:, np.newaxis]
+        direct_condition = direct_condition[:, [0, 2]]
 
-    out_dict['direct_condition'] = variant_selection.astype(np.float32)
+    out_dict['direct_condition'] = direct_condition.astype(np.float32)
 
     assert out_dict['summary_conditions'].shape[0] == out_dict['direct_condition'].shape[0], \
         'Number of samples in summary conditions and direct condition do not match'
@@ -145,26 +149,25 @@ def configurator_joint(forward_dict: dict,
         params = (params - prior_mean) / prior_std
         out_dict['parameters'] = params.astype(np.float32)
 
-    # non batchable context can come as a list or as a single value
-    sim_batchable_context = np.array(forward_dict['sim_batchable_context']).flatten()
 
     # Extract context
-    selection_cond = np.array(
-        [[0. if s == 'pedcov' else 1.]
-         for s in sim_batchable_context]
-    )
+    selection_procedure = np.array([sel for sel, _ in forward_dict['sim_batchable_context']])  # two values per sample
+    alpha_condition = np.array([a for _, a in forward_dict['sim_batchable_context']]).astype(np.float32)
+    direct_condition = np.zeros((len(x), 3), dtype=np.float32)
+    direct_condition[selection_procedure == 'random', 0] = 1.  # if selection procedure is pedcov=0, random=1
+    direct_condition[:, 1:] = (np.log(alpha_condition) - community.mean()) / community.std()  # alpha value
 
     if keep_pedcov_only:
         logger.warning('Drop all but PedCov')
         not_inform_selection = True
         # Extract context
-        keep_indices = np.array([True if s == 'pedcov' else False for s in sim_batchable_context])
+        keep_indices = np.array(selection_procedure == 'pedcov')
         if keep_indices.size == 0:
             # If keep_indices is empty, select a random index to not have an empty batch
             logger.warning("keep_indices is empty, select a random index")
-            keep_indices = np.array([np.random.choice(len(sim_batchable_context))])
+            keep_indices = np.array([np.random.choice(len(selection_procedure))])
 
-        selection_cond = selection_cond[keep_indices]
+        direct_condition = direct_condition[keep_indices]
         out_dict['summary_conditions'] = out_dict['summary_conditions'][keep_indices]
         if 'parameters' in out_dict.keys():
             out_dict['parameters'] = out_dict['parameters'][keep_indices]
@@ -172,8 +175,9 @@ def configurator_joint(forward_dict: dict,
     if not_inform_selection:
         # drop direct condition on selection procedure
         logger.info('Warning: Not informing about selection procedure')
+        out_dict['direct_condition'] = direct_condition[:, 1][:, np.newaxis].astype(np.float32)
     else:
-        out_dict['direct_condition'] = selection_cond.astype(np.float32)
+        out_dict['direct_condition'] = direct_condition.astype(np.float32)
 
     if 'parameters' in out_dict.keys():
         assert out_dict['summary_conditions'].shape[0] == out_dict['parameters'].shape[0], \
