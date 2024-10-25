@@ -2,6 +2,7 @@ import logging
 import os
 import pickle
 from functools import partial
+from itertools import product
 from time import perf_counter
 from typing import Union
 
@@ -190,36 +191,36 @@ class GroupSummaryNetwork(tf.keras.Model):
     def __init__(
             self,
             summary_dim,
+            use_time_attention,
             num_conv_layers=2,
             rnn_units=32,
             bidirectional=True,
             conv_settings=None,
-            use_attention=True,
             return_attention_weights=False,
             **kwargs
     ):
         super().__init__(**kwargs)
-
-        if conv_settings is None:
-            conv_settings = defaults.DEFAULT_SETTING_MULTI_CONV
-
-        conv = Sequential([MultiConv1D(conv_settings) for _ in range(num_conv_layers)])
-        self.group_conv = tf.keras.layers.TimeDistributed(conv)
+        self.use_time_attention = use_time_attention
         self.return_attention_weights = return_attention_weights
 
-        self.use_attention = use_attention
-        if self.use_attention:
-            self.attention = tf.keras.layers.MultiHeadAttention(num_heads=4, key_dim=rnn_units)
-            self.norm_layer = tf.keras.layers.LayerNormalization()
+        if self.use_time_attention:
+            # no masking, full time series used, then attention on time series
+            if conv_settings is None:
+                conv_settings = defaults.DEFAULT_SETTING_MULTI_CONV
+            conv = Sequential([MultiConv1D(conv_settings) for _ in range(num_conv_layers)])
+            self.group_conv = tf.keras.layers.TimeDistributed(conv)
+            self.pooling = tf.keras.layers.GlobalAveragePooling1D()
+
+        self.attention = tf.keras.layers.MultiHeadAttention(num_heads=4, key_dim=rnn_units)
+        self.norm_layer = tf.keras.layers.LayerNormalization()
 
         if bidirectional:
-            rnn = Bidirectional(GRU(rnn_units, return_sequences=use_attention))
+            rnn = Bidirectional(GRU(rnn_units, return_sequences=use_time_attention))
         else:
-            rnn = GRU(rnn_units, return_sequences=use_attention)
+            rnn = GRU(rnn_units, return_sequences=use_time_attention)
         self.group_rnn = tf.keras.layers.TimeDistributed(rnn)
 
-        self.pooling = tf.keras.layers.GlobalAveragePooling1D()
-        self.out_layer = Dense(summary_dim, activation="linear")
+        self.out_layer = Dense(units=summary_dim, activation="linear")
         self.summary_dim = summary_dim
 
     def call(self, x, **kwargs):
@@ -239,26 +240,48 @@ class GroupSummaryNetwork(tf.keras.Model):
         attention_weights = None
 
         # Apply the RNN to each group
-        out = self.group_conv(x, **kwargs)
-        out = self.group_rnn(out, **kwargs)  # (batch_size, n_groups, lstm_units)
-        # if attention is used, return full sequence (batch_size, n_groups, n_time_steps, lstm_units)
-        # bidirectional LSTM returns 2*lstm_units
+        if self.use_time_attention:
+            # no masking, full time series used, then attention on time series
+            out = self.group_conv(x, **kwargs)
+            out = self.group_rnn(out, **kwargs)
+            #  return full sequence (batch_size, n_groups, n_time_steps, lstm_units)
+            # bidirectional LSTM returns 2*lstm_units
 
-        if self.use_attention:
             # learn a query vector to attend over the time points (mean over groups)
-            query = tf.reduce_mean(out, axis=1)
-            # Reshape query to match the required shape for attention
-            query = tf.expand_dims(query, axis=1)  # (batch_size, 1, n_time_steps, lstm_units)
+            query = tf.reduce_mean(out, axis=1, keepdims=True)  # Shape: (batch_size, 1, n_time_steps, lstm_units)
+
             if not self.return_attention_weights:
                 out = self.attention(query, out, **kwargs)  # (batch_size, 1, n_time_steps, lstm_units)
             else:
                 out, attention_weights = self.attention(query, out, return_attention_scores=True, **kwargs)
                 attention_weights = tf.squeeze(attention_weights, axis=2)
-            out = tf.squeeze(out, axis=1)  # Remove the extra dimension (batch_size, n_time_steps, lstm_units)
-            out = self.norm_layer(out)
 
-        # pooling over time steps
-        out = self.pooling(out, **kwargs)  # (batch_size, lstm_units)
+            # Remove the extra dimension (batch_size, 1, n_time_steps, lstm_units)
+            out = tf.squeeze(out, axis=1)
+            # pooling over time steps
+            out = self.pooling(out, **kwargs)  # (batch_size, lstm_units)
+        else:  # group attention
+            # if no time-attention is used, padded time series is masked
+            # assuming that all zero values are the padding
+            mask = tf.reduce_any(tf.not_equal(x, 0), axis=-1)  # Shape: (batch_size, n_groups, n_time_steps)
+            out = self.group_rnn(x, mask=mask, **kwargs)  # (batch_size, n_groups, lstm_units)
+            # bidirectional LSTM returns 2*lstm_units
+
+            # Reshape for group-based multi-head attention
+            query = tf.reduce_mean(out, axis=1, keepdims=True)  # Shape: (batch_size, 1, lstm_units)
+
+            # Apply group-based attention
+            if not self.return_attention_weights:
+                out = self.attention(query, out, **kwargs)
+            else:
+                out, attention_weights = self.attention(query, out, return_attention_scores=True, **kwargs)
+                attention_weights = tf.squeeze(attention_weights, axis=-1)  # Remove last dimension
+
+            # Remove the extra dimension (batch_size, 1, lstm_units)
+            out = tf.squeeze(out, axis=1)
+
+        # apply layer normalization
+        out = self.norm_layer(out)
 
         # apply dense layer
         out = self.out_layer(out, **kwargs)  # (batch_size, summary_dim)
@@ -289,53 +312,26 @@ def load_model(model_id: int, n_params: int, generative_model,
         "bins": 16,
     }
     summary_loss = None
-    pedcov_only = False
 
-    if model_id == 0:
-        amortizer_name = 'amortizer-sampling-bias-both_variants-6-attention'
-        num_coupling_layers = 6
-    elif model_id == 1:
-        amortizer_name = 'amortizer-sampling-bias-both_variants-7-attention'
-        num_coupling_layers = 7
-    elif model_id == 2:
-        amortizer_name = 'amortizer-sampling-bias-both_variants-8-attention'
-        num_coupling_layers = 8
-    elif model_id == 3:
-        amortizer_name = 'amortizer-sampling-bias-both_variants-9-attention'
-        num_coupling_layers = 9
-    elif model_id == 4:
-        amortizer_name = 'amortizer-sampling-bias-both_variants-6-attention-pedcov-only'
-        num_coupling_layers = 6
-        pedcov_only = True
-    elif model_id == 5:
-        amortizer_name = 'amortizer-sampling-bias-both_variants-7-attention-pedcov-only'
-        num_coupling_layers = 7
-        pedcov_only = True
-    elif model_id == 6:
-        amortizer_name = 'amortizer-sampling-bias-both_variants-8-attention-pedcov-only'
-        num_coupling_layers = 8
-        pedcov_only = True
-    elif model_id == 7:
-        amortizer_name = 'amortizer-sampling-bias-both_variants-9-attention-pedcov-only'
-        num_coupling_layers = 9
-        pedcov_only = True
-    elif model_id == 8:
-        amortizer_name = 'amortizer-sampling-bias-both_variants-7-attention-drop-households'
-        num_coupling_layers = 7
-        drop_n_households = True
-    elif model_id == 9:
-        amortizer_name = 'amortizer-sampling-bias-both_variants-8-attention-drop-households'
-        num_coupling_layers = 8
-        drop_n_households = True
-    elif model_id == 10:
-        amortizer_name = 'amortizer-sampling-bias-both_variants-9-attention-drop-households'
-        num_coupling_layers = 9
-        drop_n_households = True
-    else:
-        raise ValueError('Invalid network id')
+    pedcov_only = [False, True]
+    use_time_attention = [True, False]
+    num_coupling_layers = [6, 7, 8, 9]
+
+    net_configs = list(product(pedcov_only, use_time_attention, num_coupling_layers))
+    if model_id >= len(net_configs):
+        raise ValueError(f"Model ID {model_id} is out of range. Choose a number between 0 and {len(net_configs) - 1}")
+
+    pedcov_only, use_time_attention, num_coupling_layers = list(net_configs)[model_id]
+    amortizer_name = (f"amortizer_{model_id}"
+                      f"{'-pedcov_only' if pedcov_only else ''}"
+                      f"{'-time_attention' if use_time_attention else '_group_attention'}"
+                      f"-{num_coupling_layers}_layers"
+                      f"{'-drop_households' if drop_n_households else ''}")
+    logger.info(f" Model Configuration: {amortizer_name}")
 
     summary_net = GroupSummaryNetwork(
         summary_dim=n_params * 2,
+        use_time_attention=use_time_attention,
         return_attention_weights=amortizer_return_attention_weights,  # only needed for diagnostics of attention
     )
 
@@ -355,7 +351,7 @@ def load_model(model_id: int, n_params: int, generative_model,
 
     checkpoint_path = amortizer_folder + '/' + amortizer_name
     os.makedirs(amortizer_folder, exist_ok=True)
-    logger.info(f'Checkpoint path: {checkpoint_path}')
+    logger.info(f'Checkpoint path: {amortizer_folder}/amortizer_name ')
 
     # build the trainer with networks and generative model
     max_to_keep = 7
@@ -427,8 +423,8 @@ def load_model(model_id: int, n_params: int, generative_model,
         best_valid_epoch = recent_losses['Loss'].idxmin() + 1  # checkpoints are 1-based indexed
         new_checkpoint = trainer.manager.latest_checkpoint.rsplit('-', 1)[0] + f'-{best_valid_epoch}'
         trainer.checkpoint.restore(new_checkpoint)
-        logger.info(f"Best validation loss at epoch {best_valid_epoch}")
         logger.info(f"Networks loaded from {new_checkpoint}")
+        logger.info(f"Best validation loss at epoch {best_valid_epoch}")
     else:
         logger.warning('No validation losses found in history')
 
