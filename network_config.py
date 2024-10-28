@@ -91,6 +91,10 @@ def configurator(forward_dict: dict,
     if isinstance(forward_dict['sim_non_batchable_context'], str):
         forward_dict['sim_non_batchable_context'] = [forward_dict['sim_non_batchable_context']] * len(x)
     sim_non_batchable_context = np.array(forward_dict['sim_non_batchable_context']).flatten()  # one value per sample
+    if len(forward_dict['sim_batchable_context']) == 2:
+        if not isinstance(forward_dict['sim_batchable_context'][0], str):
+            raise ValueError('"sim_batchable_context" has an unexpected format')
+        forward_dict['sim_batchable_context'] = [forward_dict['sim_batchable_context']] * len(x)
     sim_batchable_context = np.array(forward_dict['sim_batchable_context'])  # two values per sample
 
     direct_condition = np.zeros((len(x), 3), dtype=np.float32)
@@ -151,6 +155,11 @@ def configurator_joint(forward_dict: dict,
 
 
     # Extract context
+    if len(forward_dict['sim_batchable_context']) == 2:
+        if not isinstance(forward_dict['sim_batchable_context'][0], str):
+            raise ValueError('"sim_batchable_context" has an unexpected format')
+        forward_dict['sim_batchable_context'] = [forward_dict['sim_batchable_context']] * len(x)
+
     selection_procedure = np.array([sel for sel, _ in forward_dict['sim_batchable_context']])  # two values per sample
     alpha_condition = np.array([a for _, a in forward_dict['sim_batchable_context']]).astype(np.float32)
     direct_condition = np.zeros((len(x), 3), dtype=np.float32)
@@ -279,7 +288,7 @@ class GroupSummaryNetwork(tf.keras.Model):
                 out = self.attention(query, out, **kwargs)
             else:
                 out, attention_weights = self.attention(query, out, return_attention_scores=True, **kwargs)
-                attention_weights = tf.squeeze(attention_weights, axis=-1)  # Remove last dimension
+                attention_weights = tf.squeeze(attention_weights, axis=2)
 
             # Remove the extra dimension (batch_size, 1, lstm_units)
             out = tf.squeeze(out, axis=1)
@@ -428,7 +437,7 @@ def load_model(model_id: int, n_params: int, generative_model,
         new_checkpoint = trainer.manager.latest_checkpoint.rsplit('-', 1)[0] + f'-{best_valid_epoch}'
         trainer.checkpoint.restore(new_checkpoint)
         logger.info(f"Networks loaded from {new_checkpoint}")
-        logger.info(f"Best validation loss at epoch {best_valid_epoch}")
+        logger.info(f"Best validation loss at epoch {best_valid_epoch} with {recent_losses['Loss'][best_valid_epoch-1]}")
     else:
         logger.warning('No validation losses found in history')
 
