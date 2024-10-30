@@ -375,7 +375,14 @@ data_selection <- function(d, variant, method, verbose = F) {
           next
         }
       }
-      
+        
+      # If inclusion case has not had symptoms or test yet --> exclude
+      if( d$date_sympt[d$id_hh==u & d$is_incluCase==1] >= d$incl_dt[d$id_hh==u & d$is_incluCase==1]) {
+        not_selected <- not_selected +1
+        hh <- setdiff(hh, u) # Remove this hh from the list of pickable hh
+        next
+      }
+        
       # Inclusion case is also index case (and the count for this type is not full)
       if (d$is_index[d$id_hh == u &
                      d$is_incluCase == 1] == 1 & hh_inclIndex < tot_hh_inclIndex) {
