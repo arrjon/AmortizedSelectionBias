@@ -6,9 +6,9 @@ library(actuar)
 data_simulation <- function(variant = NULL,
                             par = NULL,
                             verbose = F) {
-  d <- read.table(paste0("Simulator/pedcovid_data_structure_", variant, ".txt"),
+  d <- read.table(paste0("Simulator/pedcovid_data_structure_conf_", variant, ".txt"),
                   header = T)
-  n_repeat <- 50
+  n_repeat <- 5
   
   d <- d[rep(rep(1:nrow(d), n_repeat)), ] # duplicate database
 
@@ -26,7 +26,7 @@ data_simulation <- function(variant = NULL,
   # extract the original household id (number before "-")
   d <- mutate(d, id_hh_origin = sub("([0-9]+)-.*", "\\1", d$id_hh))
   
-  delayDist <- readRDS(paste0("Simulator/Delays_", variant, ".rds"))
+  delayDist <- readRDS(paste0("Simulator/Delays_conf_", variant, ".rds"))
   
   new_data <- NULL
   for (hh in unique(d$id_hh)) {
@@ -125,6 +125,11 @@ simulate_outbreak <- function(d_hh = NULL,
   }
   d_hh$date_sympt[d_hh$id_patient == index] <- d_hh$inf_date[d_hh$id_patient ==
                                                                index] + incub
+  # Add npi stop
+  if(d_hh$conf[d_hh$id_patient==index]%in%c(1,2)) {
+    if(d_hh$infect_status[d_hh$id_patient==index] %in% 1) d_hh$npi_stop[d_hh$id_patient==index] <- d_hh$date_sympt[d_hh$id_patient==index] + rgamma(1, shape=delayDist[7], rate=delayDist[8]) - ifelse(delayDist[9]<=0, abs(delayDist[9])+1, 0)
+    if(d_hh$infect_status[d_hh$id_patient==index] %in% 2) d_hh$npi_stop[d_hh$id_patient==index] <- d_hh$date_sympt[d_hh$id_patient==index] + rgamma(1, shape=delayDist[10], rate=delayDist[11]) - ifelse(delayDist[12]<=0, abs(delayDist[12])+1, 0)
+  }
   if (verbose)
     message(paste("   Index infection status is", d_hh$infect_status[d_hh$id_patient ==
                                                                        index]))
@@ -178,6 +183,12 @@ simulate_outbreak <- function(d_hh = NULL,
         }
         d_hh$date_sympt[d_hh$id_patient == ind] <- t + incub
         
+        # Add npi stop
+        if(d_hh$conf[d_hh$id_patient==ind]%in%c(1,2)) {
+          if(d_hh$infect_status[d_hh$id_patient==ind] %in% 1) d_hh$npi_stop[d_hh$id_patient==ind] <- d_hh$date_sympt[d_hh$id_patient==ind] + rgamma(1, shape=delayDist[7], rate=delayDist[8]) - ifelse(delayDist[9]<=0, abs(delayDist[9])+1, 0)
+          if(d_hh$infect_status[d_hh$id_patient==ind] %in% 2) d_hh$npi_stop[d_hh$id_patient==ind] <- d_hh$date_sympt[d_hh$id_patient==ind] + rgamma(1, shape=delayDist[10], rate=delayDist[11]) - ifelse(delayDist[12]<=0, abs(delayDist[12])+1, 0)
+        }
+        
       } # if ind does not get infected, do not do anything (by default, ind is not infected)
     }
     
@@ -208,7 +219,7 @@ simulate_outbreak <- function(d_hh = NULL,
   
   
   # Reformat symptoms date so the first one is 30
-  m <- min(c(d_hh$date_sympt, d_hh$incl_dt, d_hh$inf_date), na.rm = T)
+  m <- min(c(d_hh$date_sympt, d_hh$incl_dt, d_hh$inf_date, d_hh$npi_stop), na.rm = T)
   # Attribute end of followup
   d_hh <- mutate(
     d_hh,
@@ -216,15 +227,18 @@ simulate_outbreak <- function(d_hh = NULL,
       date_sympt == 1000 ~ 1000,
       date_sympt != 1000 ~ 30 + as.numeric(date_sympt - m)
     ),
-    # date_sympt!=1000 ~ 30 + as.numeric(date_sympt - min(c(date_sympt,incl_dt,inf_date), na.rm=T)) ),
     incl_dt = case_when(
-      is.na(incl_dt) ~ NA,!is.na(incl_dt) ~ 30 + as.numeric(incl_dt - m)
+      is.na(incl_dt) ~ NA,
+      !is.na(incl_dt) ~ 30 + as.numeric(incl_dt - m)
     ),
-    # !is.na(incl_dt) ~ 30 + as.numeric(incl_dt - min(c(date_sympt,incl_dt,inf_date), na.rm=T)) ),
     inf_date = case_when(
-      is.na(inf_date) ~ NA,!is.na(inf_date) ~ 30 + as.numeric(inf_date - m)
+      is.na(inf_date) ~ NA,
+      !is.na(inf_date) ~ 30 + as.numeric(inf_date - m)
     ),
-    # !is.na(inf_date) ~ 30 + as.numeric(inf_date - min(c(date_sympt,incl_dt,inf_date), na.rm=T)) ),
+    npi_stop = case_when(
+      is.na(npi_stop) ~ 1000,
+      !is.na(npi_stop) ~ 30 + round(as.numeric(npi_stop - m))
+    ),
     end_followup = min(date_sympt) + duration_followup
   )
   
@@ -247,6 +261,7 @@ compute_foi <- function(data = NULL,
   mu_inf <- par$mu_inf #c(SC = 1, SI= 1, AI = 1, AC = 1, AA = 1)
   mu_susc <- par$mu_susc #c(C = 1, I = 1)
   mu_protect <- par$mu_protect #c(acq = 0.8, transm = 0.8)
+  mu_conf <- par$mu_conf
   
   infecteds <- data$id_patient[!(data$id_patient %in% susc)]
   
@@ -261,7 +276,7 @@ compute_foi <- function(data = NULL,
     if (is.infinite(proba_inf_ix_ind))
       next
     
-    # Susceptibility of ind depending on age and symptoms
+    # Infectivity of ix depending on age and symptoms
     if (data$age[data$id_patient == ix] == 1 &
         data$infect_status[data$id_patient == ix] == 1)
       proba_inf_ix_ind <- proba_inf_ix_ind * mu_inf['SC'] # sympt children
@@ -280,6 +295,11 @@ compute_foi <- function(data = NULL,
     # Infectivity of ix depending on protection
     if (data$protected[data$id_patient == ix] == 1)
       proba_inf_ix_ind <- proba_inf_ix_ind * mu_protect['transm']
+    # Infectivity of ix depending on NPI
+    if(data$conf[data$id_patient==ix]%in%1 & t<data$npi_stop[data$id_patient==ix] & t>=data$date_sympt[data$id_patient==ix])
+      proba_inf_ix_ind <- proba_inf_ix_ind * mu_conf['low']
+    if(data$conf[data$id_patient==ix]%in%2 & t<data$npi_stop[data$id_patient==ix] & t>=data$date_sympt[data$id_patient==ix])
+      proba_inf_ix_ind <- proba_inf_ix_ind * mu_conf['high']
     
     if (verbose)
       message(paste0("         Contribution of individual ", ix, ": ", proba_inf_ix_ind))
@@ -491,8 +511,11 @@ simulate_and_reformat <- function(par = NULL, id = 1) {
       acq = par$mu_protect_acq,
       # relative susceptibility by protection
       transm = par$mu_protect_transm
-    )  # relative infectiousness by protection
-    
+    ),  # relative infectiousness by protection
+    "mu_conf" = c(
+      low = par$mu_low_conf,
+      high = par$mu_high_conf
+    )
     # bias in study:
     # - overestimation of mu_inf_SA, mu_inf_AA (infectiousness of adults)
     # - underestimation of mu_susc_A (susceptibility of adults)
@@ -521,6 +544,8 @@ simulate_and_reformat <- function(par = NULL, id = 1) {
     age,
     age_exact,
     protected,
+    conf,
+    npi_stop,
     variant,
     id_simu,
     select_process
@@ -540,6 +565,8 @@ simulate_and_reformat <- function(par = NULL, id = 1) {
 #              'mu_susc_I' = 1,
 #              'mu_protect_acq'  = 0.1,
 #              'mu_protect_transm'  = 0.8,
+#              'mu_low_conf' = 1,
+#              'mu_high_conf' = 1,
 #              "variant" = "alpha",
 #              "selection_procedure" = "pedcov")
 # t <- simulate_and_reformat(test)
