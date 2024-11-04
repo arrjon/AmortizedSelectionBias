@@ -64,7 +64,7 @@ community = np.array([alpha_community_infection, omicron_community_infection])
 
 def configurator(forward_dict: dict,
                  prior_mean: np.ndarray, prior_std: np.ndarray,
-                 not_inform_selection: bool = False, keep_pedcov_only: bool = False, drop_n_households = False) -> dict:
+                 not_inform_selection: bool = False, keep_random_only: bool = False, drop_n_households = False) -> dict:
     out_dict = {}
 
     # Extract data (already normalized)
@@ -102,11 +102,11 @@ def configurator(forward_dict: dict,
     direct_condition[sim_batchable_context[:, 0] == 'random', 1] = 1.  #  if selection procedure is pedcov=0, random=1
     direct_condition[:, 2] = (np.log(sim_batchable_context[:, 1].astype(np.float32)) - community.mean()) / community.std()  # alpha value
 
-    if keep_pedcov_only:
-        logger.warning('Drop all but PedCov')
+    if keep_random_only:
+        logger.warning('Drop all but Random')
         not_inform_selection = True
         # Extract context
-        keep_indices = np.array(sim_batchable_context[:, 0] == 'pedcov')
+        keep_indices = np.array(sim_batchable_context[:, 0] == 'random')
         if keep_indices.size == 0:
             # If keep_indices is empty, select a random index to not have an empty batch
             logger.warning("keep_indices is empty, select a random index")
@@ -136,7 +136,7 @@ def configurator(forward_dict: dict,
 def configurator_joint(forward_dict: dict,
                        prior_mean: np.ndarray, prior_std: np.ndarray,
                        make_prior_relative: callable,
-                       not_inform_selection: bool = False, keep_pedcov_only: bool = False) -> dict:
+                       not_inform_selection: bool = False, keep_random_only: bool = False) -> dict:
     out_dict = {}
 
     # Extract data (already normalized)
@@ -166,11 +166,11 @@ def configurator_joint(forward_dict: dict,
     direct_condition[selection_procedure == 'random', 0] = 1.  # if selection procedure is pedcov=0, random=1
     direct_condition[:, 1:] = (np.log(alpha_condition) - community.mean()) / community.std()  # alpha value
 
-    if keep_pedcov_only:
-        logger.warning('Drop all but PedCov')
+    if keep_random_only:
+        logger.warning('Drop all but Random')
         not_inform_selection = True
         # Extract context
-        keep_indices = np.array(selection_procedure == 'pedcov')
+        keep_indices = np.array(selection_procedure == 'random')
         if keep_indices.size == 0:
             # If keep_indices is empty, select a random index to not have an empty batch
             logger.warning("keep_indices is empty, select a random index")
@@ -326,17 +326,17 @@ def load_model(model_id: int, n_params: int, generative_model,
     }
     summary_loss = None
 
-    pedcov_only = [False, True]
+    random_only = [False, True]
     use_time_attention = [True, False]
     num_coupling_layers = [6, 7, 8, 9]
 
-    net_configs = list(product(pedcov_only, use_time_attention, num_coupling_layers))
+    net_configs = list(product(random_only, use_time_attention, num_coupling_layers))
     if model_id >= len(net_configs):
         raise ValueError(f"Model ID {model_id} is out of range. Choose a number between 0 and {len(net_configs) - 1}")
 
-    pedcov_only, use_time_attention, num_coupling_layers = list(net_configs)[model_id]
+    random_only, use_time_attention, num_coupling_layers = list(net_configs)[model_id]
     amortizer_name = (f"amortizer_{model_id}"
-                      f"{'-pedcov_only' if pedcov_only else ''}"
+                      f"{'-random_only' if random_only else ''}"
                       f"{'-time_attention' if use_time_attention else '_group_attention'}"
                       f"-{num_coupling_layers}_layers"
                       f"{'-drop_households' if drop_n_households else ''}")
@@ -374,9 +374,9 @@ def load_model(model_id: int, n_params: int, generative_model,
             # during training, we drop random selection if we want to train on PedCov only
             # during inference, we are not dropping random selection, but we do not inform the network about the selection procedure
             configurator=partial(configurator, prior_mean=prior_mean, prior_std=prior_std,
-                                 keep_pedcov_only=pedcov_only, drop_n_households=drop_n_households) if train_network else
+                                 keep_random_only=random_only, drop_n_households=drop_n_households) if train_network else
             partial(configurator, prior_mean=prior_mean, prior_std=prior_std,
-                    not_inform_selection=pedcov_only, drop_n_households=drop_n_households),
+                    not_inform_selection=random_only, drop_n_households=drop_n_households),
             generative_model=generative_model,
             checkpoint_path=checkpoint_path,
             skip_checks=True,
@@ -389,10 +389,10 @@ def load_model(model_id: int, n_params: int, generative_model,
             # during inference, we are not dropping random selection, but we do not inform the network about the selection procedure
             configurator=partial(configurator_joint, prior_mean=prior_mean, prior_std=prior_std,
                                  make_prior_relative=make_prior_relative,
-                                 keep_pedcov_only=pedcov_only) if train_network else
+                                 keep_random_only=random_only) if train_network else
             partial(configurator_joint, prior_mean=prior_mean, prior_std=prior_std,
                     make_prior_relative=make_prior_relative,
-                    not_inform_selection=pedcov_only),
+                    not_inform_selection=random_only),
             generative_model=generative_model,
             checkpoint_path=checkpoint_path,
             skip_checks=True,
