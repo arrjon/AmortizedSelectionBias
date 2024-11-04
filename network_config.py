@@ -7,6 +7,7 @@ from time import perf_counter
 from typing import Union
 
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 from bayesflow import default_settings as defaults
 from bayesflow.amortizers import AmortizedPosterior
@@ -64,7 +65,7 @@ community = np.array([alpha_community_infection, omicron_community_infection])
 
 def configurator(forward_dict: dict,
                  prior_mean: np.ndarray, prior_std: np.ndarray,
-                 not_inform_selection: bool = False, keep_random_only: bool = False, drop_n_households = False) -> dict:
+                 not_inform_selection: str = None, keep_selection: str = None, drop_n_households = False) -> dict:
     out_dict = {}
 
     # Extract data (already normalized)
@@ -102,11 +103,11 @@ def configurator(forward_dict: dict,
     direct_condition[sim_batchable_context[:, 0] == 'random', 1] = 1.  #  if selection procedure is pedcov=0, random=1
     direct_condition[:, 2] = (np.log(sim_batchable_context[:, 1].astype(np.float32)) - community.mean()) / community.std()  # alpha value
 
-    if keep_random_only:
-        logger.warning('Drop all but Random')
-        not_inform_selection = True
+    if keep_selection is not None:
+        logger.warning(f'Drop all but {keep_selection}')
+        not_inform_selection = keep_selection
         # Extract context
-        keep_indices = np.array(sim_batchable_context[:, 0] == 'random')
+        keep_indices = np.array(sim_batchable_context[:, 0] == keep_selection)
         if keep_indices.size == 0:
             # If keep_indices is empty, select a random index to not have an empty batch
             logger.warning("keep_indices is empty, select a random index")
@@ -117,9 +118,11 @@ def configurator(forward_dict: dict,
         if 'parameters' in out_dict.keys():
             out_dict['parameters'] = out_dict['parameters'][keep_indices]
 
-    if not_inform_selection:
+    if not_inform_selection is not None:
         # drop second direct condition on selection procedure
-        logger.info('Warning: Not informing about selection procedure')
+        if keep_selection is None:
+            # no warning issued before
+            logger.info('Warning: Not informing about selection procedure')
         direct_condition = direct_condition[:, [0, 2]]
 
     out_dict['direct_condition'] = direct_condition.astype(np.float32)
@@ -136,7 +139,7 @@ def configurator(forward_dict: dict,
 def configurator_joint(forward_dict: dict,
                        prior_mean: np.ndarray, prior_std: np.ndarray,
                        make_prior_relative: callable,
-                       not_inform_selection: bool = False, keep_random_only: bool = False) -> dict:
+                       not_inform_selection: str = None, keep_selection: str = None) -> dict:
     out_dict = {}
 
     # Extract data (already normalized)
@@ -166,11 +169,11 @@ def configurator_joint(forward_dict: dict,
     direct_condition[selection_procedure == 'random', 0] = 1.  # if selection procedure is pedcov=0, random=1
     direct_condition[:, 1:] = (np.log(alpha_condition) - community.mean()) / community.std()  # alpha value
 
-    if keep_random_only:
-        logger.warning('Drop all but Random')
-        not_inform_selection = True
+    if keep_selection is not None:
+        logger.warning(f'Drop all but {keep_selection}')
+        not_inform_selection = keep_selection
         # Extract context
-        keep_indices = np.array(selection_procedure == 'random')
+        keep_indices = np.array(selection_procedure == keep_selection)
         if keep_indices.size == 0:
             # If keep_indices is empty, select a random index to not have an empty batch
             logger.warning("keep_indices is empty, select a random index")
@@ -181,9 +184,11 @@ def configurator_joint(forward_dict: dict,
         if 'parameters' in out_dict.keys():
             out_dict['parameters'] = out_dict['parameters'][keep_indices]
 
-    if not_inform_selection:
+    if not_inform_selection is not None:
         # drop direct condition on selection procedure
-        logger.info('Warning: Not informing about selection procedure')
+        if keep_selection is None:
+            # no warning issued before
+            logger.info('Warning: Not informing about selection procedure')
         out_dict['direct_condition'] = direct_condition[:, 1][:, np.newaxis].astype(np.float32)
     else:
         out_dict['direct_condition'] = direct_condition.astype(np.float32)
@@ -304,13 +309,96 @@ class GroupSummaryNetwork(tf.keras.Model):
         return out
 
 
+class EnsembleTrainer:
+    """
+    Ensemble of trainers to load multiple trained amortizers with different configurations for joint prediction.
+    """
+    def __init__(self, trainers):
+        self.trainers = trainers
+        self.n_trainers = len(trainers)
+        self.checkpoint_path = 'amortizer_ensemble'
+        self.amortizer = self.EnsembleAmortizer([trainer.amortizer for trainer in trainers])
+        self.loss_history = self.EnsembleLossHistory(trainers)
+
+    def configurator(self, forward_dict: dict) -> list[dict]:
+        out_list = []
+        for trainer in self.trainers:
+            out = trainer.configurator(forward_dict)
+            out_list.append(out)
+        return out_list
+
+    class EnsembleAmortizer:
+        def __init__(self, amortizers):
+            self.amortizers = amortizers
+            self.n_amortizers = len(amortizers)
+
+        def sample(self, forward_dict: list[dict], n_samples: int) -> np.ndarray:
+            if self.n_amortizers != len(forward_dict):
+                raise ValueError(f'Number of forward_dicts ({len(forward_dict)})'
+                                 f' does not match number of amortizers ({self.n_amortizers}).')
+
+            out_list = []
+            n_samples_per_amortizer = np.ones(self.n_amortizers) * (n_samples // self.n_amortizers)
+            n_samples_per_amortizer[:n_samples % self.n_amortizers] += 1
+
+            for a_i, amortizer in enumerate(self.amortizers):
+                out = amortizer.sample(forward_dict[a_i], n_samples=n_samples_per_amortizer[a_i])
+                out_list.append(out)
+            if out_list[0].ndim == 2:
+                return np.concatenate(out_list, axis=0)
+            return np.concatenate(out_list, axis=1)
+
+    class EnsembleLossHistory:
+        def __init__(self, trainers):
+            self.trainers = trainers
+
+        def get_plottable(self):
+            # Collect all DataFrames for each trainer's train and validation losses
+            train_dfs = []
+            val_dfs = []
+
+            for trainer in self.trainers:
+                history = trainer.loss_history.get_plottable()
+                train_dfs.append(history['train_losses'])
+                val_dfs.append(history['val_losses'])
+
+            # Calculate the average DataFrame across trainers for both train and val losses
+            avg_train_df = pd.concat(train_dfs).groupby(level=0).mean()
+            avg_val_df = pd.concat(val_dfs).groupby(level=0).mean()
+
+            return {
+                'train_losses': avg_train_df,
+                'val_losses': avg_val_df
+            }
+
+
 def load_model(model_id: int, n_params: int, generative_model,
                prior_mean: np.ndarray, prior_std: np.ndarray,
                train_network: bool, valid_data: dict,
                presim_folder: str, amortizer_folder: str,
                make_prior_relative: callable = None,
                amortizer_return_attention_weights: bool = False,
+               keep_selection_inference: str = None,
                drop_n_households: Union[bool, float] = False):
+    """
+    Load or train an amortizer model with a specific configuration.
+
+    :param model_id: model configuration id
+    :param n_params: number of parameters
+    :param generative_model: the generative model
+    :param prior_mean: the prior mean
+    :param prior_std: the prior standard deviation
+    :param train_network: whether to train the network
+    :param valid_data: validation data for training
+    :param presim_folder: folder with pre-simulated data
+    :param amortizer_folder: folder to save the amortizer
+    :param make_prior_relative: function to make the prior relative
+    :param amortizer_return_attention_weights: whether to return attention weights (to diagnose attention)
+    :param keep_selection_inference: selection procedure to keep during inference (same networks are only trained on
+        specific selection procedures)
+    :param drop_n_households: whether to drop a random number of households or a specific fraction
+    :return:
+    """
     iterations_per_epoch = 1000
     # 10000 batches to be generated, 10 epoch until batches are used up
     max_epochs = 300
@@ -326,17 +414,40 @@ def load_model(model_id: int, n_params: int, generative_model,
     }
     summary_loss = None
 
-    random_only = [False, True]
+    fixed_selection = [None, 'pedcov', 'random']
     use_time_attention = [True, False]
     num_coupling_layers = [6, 7, 8, 9]
 
-    net_configs = list(product(random_only, use_time_attention, num_coupling_layers))
-    if model_id >= len(net_configs):
+    net_configs = list(product(fixed_selection, use_time_attention, num_coupling_layers))
+    if model_id == -1:
+        # load ensemble model of all configurations which should be unbiased
+        model_ids = [i for i in range(len(net_configs)) if net_configs[i][0] != 'random']
+        trainers = []
+        for m_id in model_ids:
+            trainer, _ = load_model(
+                model_id=m_id,
+                n_params=n_params,
+                generative_model=generative_model,
+                prior_mean=prior_mean,
+                prior_std=prior_std,
+                train_network=train_network,
+                valid_data=valid_data,
+                presim_folder=presim_folder,
+                amortizer_folder=amortizer_folder,
+                make_prior_relative=make_prior_relative,
+                amortizer_return_attention_weights=amortizer_return_attention_weights,
+                keep_selection_inference=keep_selection_inference,
+                drop_n_households=drop_n_households
+            )
+            trainers.append(trainer)
+        return EnsembleTrainer(trainers), 'amortizer_ensemble'
+
+    elif model_id >= len(net_configs):
         raise ValueError(f"Model ID {model_id} is out of range. Choose a number between 0 and {len(net_configs) - 1}")
 
-    random_only, use_time_attention, num_coupling_layers = list(net_configs)[model_id]
+    fixed_selection, use_time_attention, num_coupling_layers = list(net_configs)[model_id]
     amortizer_name = (f"amortizer_{model_id}"
-                      f"{'-random_only' if random_only else ''}"
+                      f"{'-'+fixed_selection+'_only' if fixed_selection is not None else ''}"
                       f"{'-time_attention' if use_time_attention else '_group_attention'}"
                       f"-{num_coupling_layers}_layers"
                       f"{'-drop_households' if drop_n_households else ''}")
@@ -374,9 +485,11 @@ def load_model(model_id: int, n_params: int, generative_model,
             # during training, we drop random selection if we want to train on PedCov only
             # during inference, we are not dropping random selection, but we do not inform the network about the selection procedure
             configurator=partial(configurator, prior_mean=prior_mean, prior_std=prior_std,
-                                 keep_random_only=random_only, drop_n_households=drop_n_households) if train_network else
+                                 keep_selection=fixed_selection,
+                                 drop_n_households=drop_n_households) if train_network else
             partial(configurator, prior_mean=prior_mean, prior_std=prior_std,
-                    not_inform_selection=random_only, drop_n_households=drop_n_households),
+                    keep_selection=keep_selection_inference, not_inform_selection=fixed_selection,
+                    drop_n_households=drop_n_households),
             generative_model=generative_model,
             checkpoint_path=checkpoint_path,
             skip_checks=True,
@@ -389,10 +502,10 @@ def load_model(model_id: int, n_params: int, generative_model,
             # during inference, we are not dropping random selection, but we do not inform the network about the selection procedure
             configurator=partial(configurator_joint, prior_mean=prior_mean, prior_std=prior_std,
                                  make_prior_relative=make_prior_relative,
-                                 keep_random_only=random_only) if train_network else
+                                 keep_selection=fixed_selection) if train_network else
             partial(configurator_joint, prior_mean=prior_mean, prior_std=prior_std,
                     make_prior_relative=make_prior_relative,
-                    not_inform_selection=random_only),
+                    keep_selection=keep_selection_inference, not_inform_selection=fixed_selection),
             generative_model=generative_model,
             checkpoint_path=checkpoint_path,
             skip_checks=True,
