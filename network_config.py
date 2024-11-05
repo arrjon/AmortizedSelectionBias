@@ -419,9 +419,27 @@ def load_model(model_id: int, n_params: int, generative_model,
     num_coupling_layers = [6, 7, 8, 9]
 
     net_configs = list(product(fixed_selection, use_time_attention, num_coupling_layers))
-    if model_id == -1:
+    if model_id < 0:
         # load ensemble model of all configurations which should be unbiased
-        model_ids = [i for i in range(len(net_configs)) if net_configs[i][0] != 'random']
+        # only load time attention models, other models have worse loss
+        if model_id == -1:  # unbiased on pedcov
+            model_ids = [i for i in range(len(net_configs)) if net_configs[i][0] != 'random' and net_configs[i][1]]
+            logger.info(f"Load ensemble of all configurations which are unbiased on PedCov")
+        elif model_id == -2:  # unbiased on random
+            model_ids = [i for i in range(len(net_configs)) if net_configs[i][0] != 'pedcov' and net_configs[i][1]]
+            logger.info(f"Load ensemble of all configurations which are unbiased on Random")
+        elif model_id == -3:  # unbiased on pedcov and random
+            model_ids = [i for i in range(len(net_configs)) if net_configs[i][0] is None and net_configs[i][1]]
+            logger.info(f"Load ensemble of all configurations which are unbiased on PedCov and Random")
+        elif model_id == -4:  # biased towards pedcov
+            model_ids = [i for i in range(len(net_configs)) if net_configs[i][0] == 'pedcov' and net_configs[i][1]]
+            logger.info(f"Load ensemble of all configurations which are biased towards PedCov")
+        elif model_id == -5:  # biased towards random
+            model_ids = [i for i in range(len(net_configs)) if net_configs[i][0] == 'random' and net_configs[i][1]]
+            logger.info(f"Load ensemble of all configurations which are biased towards Random")
+        else:
+            raise ValueError(f"Model ID {model_id} is not valid for ensemble training. "
+                             f"Choose a number between -3 and -1")
         trainers = []
         for m_id in model_ids:
             trainer, _ = load_model(
@@ -475,7 +493,7 @@ def load_model(model_id: int, n_params: int, generative_model,
 
     checkpoint_path = amortizer_folder + '/' + amortizer_name
     os.makedirs(amortizer_folder, exist_ok=True)
-    logger.info(f'Checkpoint path: {amortizer_folder}/amortizer_name ')
+    logger.info(f'Checkpoint path: {amortizer_folder}/{amortizer_name} ')
 
     # build the trainer with networks and generative model
     max_to_keep = 7
