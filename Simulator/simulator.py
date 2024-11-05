@@ -7,13 +7,16 @@ pandas2ri.activate()
 r.source('Simulator/Simulator.R')
 model_r = r['simulate_and_reformat']
 
-PARAM_NAMES = ['alpha',  # alpha is not estimated
-               'beta', 'delta',
-               'mu_inf_SC', 'mu_inf_SI',
-               'mu_inf_AI', 'mu_inf_AC', 'mu_inf_AA',
-               'mu_susc_C', 'mu_susc_I',
-               'mu_protect_acq',
-               'mu_protect_transm']  # last two are fixed
+PARAM_NAMES = [
+    'alpha',  # alpha is not estimated
+    'beta', 'delta',
+    'mu_inf_SC', 'mu_inf_SI',
+    'mu_inf_AI', 'mu_inf_AC', 'mu_inf_AA',
+    'mu_susc_C', 'mu_susc_I',
+    'mu_protect_acq',  # fixed
+    'mu_protect_transm',  # fixed
+    'mu_low_conf', 'mu_high_conf'
+]
 
 FIXED_PARAMETERS = {
     'alpha': {

@@ -40,6 +40,16 @@ class AgeGroup(IntEnum):
     CHILD = 1
     OLDER = 2
 
+class ProtectionStatus(IntEnum):
+    """Enumeration for protection status values"""
+    NOT_PROTECTED = 0
+    PROTECTED = 1
+
+class ConfinementStatus(IntEnum):
+    """Enumeration for confinement status values"""
+    NOT_CONFINED = 0
+    CONFINED_LOW = 1
+    CONFINED_HIGH = 2
 
 @dataclass
 class ProcessingConfig:
@@ -63,8 +73,13 @@ ENCODING_DICT = {
         AgeGroup.OLDER: [0, 1],
     },
     'protected': {
-        0: [0],  # not protected
-        1: [1]  # protected
+        ProtectionStatus.NOT_PROTECTED: [0],
+        ProtectionStatus.PROTECTED: [1],
+    },
+    'conf': {
+        ConfinementStatus.NOT_CONFINED: [0, 0],
+        ConfinementStatus.CONFINED_LOW: [1, 0],
+        ConfinementStatus.CONFINED_HIGH: [0, 1],
     }
 }
 
@@ -79,7 +94,10 @@ def validate_input_data(df: pd.DataFrame) -> None:
     Raises:
         ValueError: If required columns are missing or data integrity issues are found
     """
-    required_columns = {'id_hh', 'date_sympt', 'infect_status', 'age_exact', 'protected', 'end_followup'}
+    required_columns = {'id_hh', 'date_sympt', 'infect_status', 'age_exact',
+                        'protected',
+                        'conf', 'npi_stop',
+                        'end_followup'}
     missing_columns = required_columns - set(df.columns)
     if missing_columns:
         raise ValueError(f"Missing required columns: {missing_columns}")
@@ -94,6 +112,17 @@ def validate_input_data(df: pd.DataFrame) -> None:
     invalid_statuses = actual_statuses - valid_statuses
     if invalid_statuses:
         raise ValueError(f"Invalid infection status values found: {invalid_statuses}")
+
+    # Check in npi_stop is not before date_sympt
+    if (df['npi_stop'] < df['date_sympt']).any():
+        print(df.loc[df['npi_stop'] < df['date_sympt']])
+        raise ValueError("npi_stop is before date_sympt")
+
+    # Check if npi_stop is NOT_INFECTED_DATE if infect_status is NOT_INFECTED
+    mask_not_infected = df['date_sympt'] == 1000
+    if (df.loc[mask_not_infected, 'npi_stop'] != df.loc[mask_not_infected, 'date_sympt']).any():
+        raise ValueError("npi_stop is not equal to date_sympt")
+    return
 
 
 def encode_row(row: pd.Series, encoding_dict: Dict) -> List[float]:
@@ -144,6 +173,11 @@ def normalize_dates_and_age(
     # For non-infected cases, use end_followup_norm
     df.loc[~mask_infected, 'date_sympt_norm'] = df.loc[~mask_infected, 'end_followup_norm']
 
+    # Normalize npi stop dates
+    mask_confined = df['conf'] != ConfinementStatus.NOT_CONFINED
+    df.loc[mask_confined, 'npi_stop_norm'] = df.loc[mask_confined, 'npi_stop'] / config.DATE_MAX
+    df.loc[~mask_confined, 'npi_stop_norm'] = df.loc[~mask_confined, 'date_sympt_norm']
+
     # Normalize age
     df['age_exact_norm'] = df['age_exact'] / config.AGE_MAX
 
@@ -159,7 +193,7 @@ def process_household(
     Processes data for a single household.
 
     Args:
-        df_hh: DataFrame containing single household data
+        df_hh: DataFrame containing single household data (expects columns to be normalized already)
         minimal_length: Minimum sequence length required
         config: Processing configuration
 
@@ -171,14 +205,15 @@ def process_household(
         encoded_household = np.array(encoded_data.tolist())
 
         # Create follow-up array
-        follow_up = -np.ones((encoded_household.shape[1] + 1, 1))
+        follow_up = -np.ones((encoded_household.shape[1] + 2, 1))  # +2 (exact age, npi_stop)
         follow_up[0, 0] = df_hh['end_followup_norm'].iloc[0]
 
         # Construct household array without follow-up
         household = np.concatenate((
             encoded_household[:, :5],  # measurement time, infection status, age group
             df_hh['age_exact_norm'].values[:, np.newaxis],
-            encoded_household[:, 5][:, np.newaxis],  # protection status
+            encoded_household[:, 5:],  # protection status, conf status
+            df_hh['npi_stop_norm'].values[:, np.newaxis]
         ), axis=1)
 
         # Sort only the main data by date (excluding follow-up)
@@ -196,7 +231,9 @@ def process_household(
             df_hh['infect_status'].values,
             df_hh['age'].values,  # age_group
             df_hh['age_exact_norm'].values,
-            df_hh['protected'].values
+            df_hh['protected'].values,
+            df_hh['conf'].values,
+            df_hh['npi_stop_norm'].values
         ))
 
         # Sort main data by date
@@ -204,7 +241,7 @@ def process_household(
         household = household[:, order]
 
         # Add follow-up data as the last column
-        follow_up = np.array([[df_hh['end_followup_norm'].iloc[0]], [-1], [-1], [-1], [-1]])
+        follow_up = np.array([[df_hh['end_followup_norm'].iloc[0]], [-1] * household.shape[1]])
         household = np.concatenate((household, follow_up), axis=1)
 
     # Pad if necessary

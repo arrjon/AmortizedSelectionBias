@@ -529,7 +529,7 @@ simulate_and_reformat <- function(par = NULL, id = 1) {
       id_simu = id,
       select_process = selection_procedure
     )
-  #sim_data <- recruit[recruit$variant==variant,]
+  sim_data <- recruit[recruit$variant==variant,]
   
   # select columns
   sim_data <- select(
