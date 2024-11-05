@@ -114,7 +114,8 @@ def validate_input_data(df: pd.DataFrame) -> None:
         raise ValueError(f"Invalid infection status values found: {invalid_statuses}")
 
     # Check in npi_stop is not before date_sympt
-    if (df['npi_stop'] < df['date_sympt']).any():
+    if (df['npi_stop']+df['date_sympt'] <= df['end_followup']).any():  # todo: not sure if npi_stop is relative or not
+        df['test'] = df['npi_stop']+df['date_sympt']
         print(df.loc[df['npi_stop'] < df['date_sympt']])
         raise ValueError("npi_stop is before date_sympt")
 
