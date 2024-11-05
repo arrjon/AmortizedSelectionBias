@@ -8,7 +8,7 @@ data_simulation <- function(variant = NULL,
                             verbose = F) {
   d <- read.table(paste0("Simulator/pedcovid_data_structure_conf_", variant, ".txt"),
                   header = T)
-  n_repeat <- 5
+  n_repeat <- 50
   
   d <- d[rep(rep(1:nrow(d), n_repeat)), ] # duplicate database
 
