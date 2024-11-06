@@ -29,7 +29,7 @@ FIXED_PARAMETERS = {
     }
 }
 
-PROCEDURES = ['pedcov', 'random', 'original_pedcov', 'original_random', 'adult', 'sampling1', 'samplingIG']
+PROCEDURES = ['pedcov', 'random', 'original_pedcov', 'original_random', 'adult']
 
 alpha_community_infection = np.array([0.0005, 0.002, 0.003])
 omicron_community_infection = alpha_community_infection * 10
