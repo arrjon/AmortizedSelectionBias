@@ -113,12 +113,6 @@ def validate_input_data(df: pd.DataFrame) -> None:
     if invalid_statuses:
         raise ValueError(f"Invalid infection status values found: {invalid_statuses}")
 
-    # Check in npi_stop is not before date_sympt
-    if (df['npi_stop']+df['date_sympt'] <= df['end_followup']).any():  # todo: not sure if npi_stop is relative or not
-        df['test'] = df['npi_stop']+df['date_sympt']
-        print(df.loc[df['npi_stop'] < df['date_sympt']])
-        raise ValueError("npi_stop is before date_sympt")
-
     # Check if npi_stop is NOT_INFECTED_DATE if infect_status is NOT_INFECTED
     mask_not_infected = df['date_sympt'] == 1000
     if (df.loc[mask_not_infected, 'npi_stop'] != df.loc[mask_not_infected, 'date_sympt']).any():
@@ -174,9 +168,15 @@ def normalize_dates_and_age(
     # For non-infected cases, use end_followup_norm
     df.loc[~mask_infected, 'date_sympt_norm'] = df.loc[~mask_infected, 'end_followup_norm']
 
+    # People confined before symptomatic date does not have an impact on simulation outcome, so set to not confined
+    mask_npi_before_sympt = df['npi_stop'] <= df['date_sympt']
+    df.loc[mask_npi_before_sympt, 'conf'] = ConfinementStatus.NOT_CONFINED
+
     # Normalize npi stop dates
     mask_confined = df['conf'] != ConfinementStatus.NOT_CONFINED
     df.loc[mask_confined, 'npi_stop_norm'] = df.loc[mask_confined, 'npi_stop'] / config.DATE_MAX
+
+    # Unconfined people have npi_stop equal to date_sympt (stopped confinement at symptomatic date)
     df.loc[~mask_confined, 'npi_stop_norm'] = df.loc[~mask_confined, 'date_sympt_norm']
 
     # Normalize age
@@ -249,6 +249,8 @@ def process_household(
     if household.shape[1] < minimal_length:
         padding = np.zeros((household.shape[0], minimal_length - household.shape[1]))
         household = np.concatenate([padding, household], axis=1)
+    # convert to float32
+    household = household.astype(np.float32)
     return household
 
 
