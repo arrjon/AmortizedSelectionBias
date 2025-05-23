@@ -7,3 +7,4 @@ train_bayesflow_joint.py
 .DS_Store
 /stan_model
 /KoCo
+**.pickle
