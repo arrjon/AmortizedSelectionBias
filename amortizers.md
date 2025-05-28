@@ -26,6 +26,18 @@ Best (3): time attention with 9 invertible layers
 
 Best (10): time attention with 8 invertible layers 
 
+### Random Only
+- amortizer_16-pedcov_only-time_attention-6_layers: 3.024832248687744
+- amortizer_17-pedcov_only-time_attention-7_layers: 2.7513809204101562
+- amortizer_18-pedcov_only-time_attention-8_layers: 3.1653215885162354
+- amortizer_19-pedcov_only-time_attention-9_layers: 2.934483051300049
+- amortizer_20-pedcov_only_group_attention-6_layers: 3.220946788787842
+- amortizer_21-pedcov_only_group_attention-7_layers: 3.1543564796447754
+- amortizer_22-pedcov_only_group_attention-8_layers: 3.3921024799346924
+- amortizer_23-pedcov_only_group_attention-9_layers: 4.1368255615234375
+
+Best (17): time attention with 7 invertible layers 
+
 
 ## Joint Inference
 
