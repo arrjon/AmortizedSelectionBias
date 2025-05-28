@@ -5,7 +5,6 @@ from typing import Dict, List, Union, Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri, ListVector
 
 
@@ -378,231 +377,231 @@ def measure_bias(true_values, estimated_values, param_names):
     return pd.DataFrame(results)
 
 
-def plot_attention_scores(
-        attention_scores: np.ndarray,
-        valid_data: Optional[np.ndarray] = None,
-        batch_idx: Optional[int] = None,
-        head_idx: Optional[int] = None,
-        group_idx: Optional[int] = None,
-        normalize: bool = True
-):
-    """
-    Plots a heatmap of attention scores for a specific batch, head or group.
-
-    Parameters:
-    -----------
-    attention_scores : tf.Tensor
-        Attention scores tensor of shape (batch_size, num_heads, n_time_steps, n_groups, n_time_steps).
-    head_idx : int
-        Index of the attention head to visualize.
-    group_idx : int
-        Index of the group to visualize.
-    """
-
-    if attention_scores.ndim == 5:  # time_attention
-        # Extract the scores for the given batch, head, and group
-        if group_idx is None:
-            scores = tf.reduce_mean(attention_scores, axis=3)  # Average over groups
-        else:
-            scores = attention_scores[:, :, :, group_idx, :]
-        if batch_idx is None:
-            scores = tf.reduce_mean(scores, axis=0)  # average over batches
-        else:
-            scores = scores[batch_idx]
-        if head_idx is None:
-            scores = tf.reduce_mean(scores, axis=0).numpy()  # Shape: (9, 9)
-        else:
-            scores = scores[head_idx].numpy()  # Shape: (9, 9)
-
-        first_inv_idx, time_labels = None, None
-        if valid_data is not None and batch_idx is not None and group_idx is not None:
-            time_labels = valid_data['sim_data'][batch_idx, group_idx, :, 0]  # Extract time step label
-            first_inv_idx = np.where(valid_data['sim_data'][batch_idx, group_idx, :, 0] != 0)[0][0]
-
-        # Normalize the scores
-        if normalize:
-            scores = (scores - np.min(scores)) / (np.max(scores) - np.min(scores))
-
-        # Plot the heatmap
-        plt.figure(figsize=(8, 6))
-        plt.imshow(scores, cmap='viridis', aspect='auto')
-        if normalize:
-            plt.colorbar(label='Normalized Attention Score')
-        else:
-            plt.colorbar(label='Attention Score')
-        plt.title(f"Attention Scores for, Head {head_idx}")
-        plt.xlabel('Key/Value Time Steps')
-        plt.ylabel('Query Time Steps')
-        if first_inv_idx is not None:
-            # Add a vertical line at the index of first infected
-            plt.vlines(x=first_inv_idx - 0.5, ymin=first_inv_idx - 0.5, ymax=scores.shape[0] - 0.5,
-                       color='red', linestyle='--', label='First 1')
-            plt.hlines(y=first_inv_idx - 0.5, xmin=first_inv_idx - 0.5, xmax=scores.shape[0] - 0.5,
-                       color='red', linestyle='--', label='First 1')
-
-        # Set time step labels if available
-        if time_labels is not None:
-            plt.xticks(ticks=np.arange(len(time_labels)), labels=time_labels, rotation=45, ha='right')
-            plt.yticks(ticks=np.arange(len(time_labels)), labels=time_labels)
-
-        plt.show()
-
-    elif attention_scores.ndim == 3:
-        scores = attention_scores.numpy()
-        if batch_idx is not None and head_idx is not None:
-            scores = scores[batch_idx, head_idx]
-        elif batch_idx is not None:
-            scores = scores[batch_idx].T
-        elif head_idx is not None:
-            scores = scores[:, head_idx].T
-        else:
-            scores = np.mean(scores, axis=(0,1))
-
-        # plot scores per group
-        plt.hist(scores)
-        plt.xlabel(f'Attention Scores, Batch {batch_idx}, Head {head_idx}')
-        plt.show()
-
-    else:
-        raise ValueError(f'wrong dimensions of attention scores: {attention_scores.ndim}')
-    return
-
-
-def plot_attention_scores_plotly(
-        attention_scores: np.ndarray,
-        valid_data: Optional[np.ndarray] = None,
-        batch_idx: Optional[int] = None,
-        head_idx: Optional[int] = None,
-        group_idx: Optional[int] = None,
-        normalize: bool = True
-):
-    """
-    Plots a heatmap of attention scores for a specific batch, head, or group using Plotly.
-
-    Parameters:
-    -----------
-    attention_scores : np.ndarray
-        Attention scores tensor of shape (batch_size, num_heads, n_time_steps, n_groups, n_time_steps).
-    valid_data : np.ndarray
-        Optional data containing time step information.
-    batch_idx : int
-        Index of the batch to visualize.
-    head_idx : int
-        Index of the attention head to visualize.
-    group_idx : int
-        Index of the group to visualize.
-    normalize : bool
-        Whether to normalize the attention scores.
-    """
-    import plotly.graph_objects as go
-
-    # Extract the scores for the given batch, head, and group
-    if group_idx is None:
-        scores = np.mean(attention_scores, axis=3)  # Average over groups
-    else:
-        scores = attention_scores[:, :, :, group_idx, :]
-    if batch_idx is None:
-        scores = np.mean(scores, axis=0)  # Average over batches
-    else:
-        scores = scores[batch_idx, :, :, :]
-    if head_idx is None:
-        scores = np.mean(scores, axis=0)  # Shape: (n_time_steps, n_time_steps)
-    else:
-        scores = scores[head_idx, :, :]  # Shape: (n_time_steps, n_time_steps)
-
-    # Normalize the scores
-    if normalize:
-        scores = (scores - np.min(scores)) / (np.max(scores) - np.min(scores))
-
-    time_labels = None
-    if valid_data is not None and batch_idx is not None and group_idx is not None:
-        # Extract time labels and positions
-        time_labels = valid_data['sim_data'][batch_idx, group_idx, :, 0]  # Extract time step label
-        non_zero_indices = time_labels != 0
-        scores = scores[non_zero_indices, :][:, non_zero_indices]
-        time_labels = time_labels[non_zero_indices]
-
-    # Create edges for x and y if time positions are given
-    if time_labels is not None:
-        # Create edges for the heatmap blocks
-        x_edges = time_labels
-        y_edges = time_labels
-    else:
-        # Use default positions if time_positions is not provided
-        n_time_steps = scores.shape[0]
-        x_edges = np.arange(n_time_steps + 1)
-        y_edges = np.arange(n_time_steps + 1)
-
-    # Create the heatmap using Plotly
-    fig = go.Figure(
-        data=go.Heatmap(
-            z=scores,
-            x=x_edges,
-            y=y_edges,
-            colorscale='Viridis',
-            colorbar=dict(title='Normalized Attention Score' if normalize else 'Attention Score')
-        )
-    )
-
-    # Set the layout with labels and titles
-    fig.update_layout(
-        title=f"Attention Scores for Head {head_idx}",
-        xaxis_title='Key/Value Time Steps',
-        yaxis_title='Query Time Steps',
-        xaxis=dict(tickmode='array', tickvals=(x_edges[:-1] + np.diff(x_edges) / 2), ticktext=time_labels, tickangle=90),
-        yaxis=dict(tickmode='array', tickvals=(y_edges[:-1] + np.diff(y_edges) / 2), ticktext=time_labels, autorange='reversed'),
-        width=800,
-        height=600
-    )
-    fig.show()
-    return
-
-
-def percentage_infection_age(data: np.ndarray, param_name) -> np.ndarray:
-    # infection_type: 0=not infected (default case), 1=symptomatic, 2=asymptomatic
-    # age_group: 0=infants (default case), 1=children, 2=adults
-    if param_name[-1] == 'A':
-        age_group = 2
-    elif param_name[-1] == 'C':
-        age_group = 1
-    else:
-        age_group = 0
-    if param_name[-2] == 'A':
-        infection_types = [2]
-    elif param_name[-2] == 'S':
-        infection_types = [1]
-    else:
-        # parameter is susceptibility
-        infection_types = [1, 2]
-
-    percentages = np.zeros(data.shape[0])
-    for i, replicate in enumerate(data):
-        for infection_type in infection_types:
-            # Extract the infection and age columns
-            time_points = replicate[:, :, 0]  # Time point
-            infection = replicate[:, :, 1:3]  # Infection columns (one-hot encoded with first dropped)
-            age = replicate[:, :, 3:5]  # Age group columns (one-hot encoded with first dropped)
-
-            # only count non zeros rows and remove end of follow up
-            valid_time_mask = (time_points > 0)
-            valid_time_mask[:, -1] = False  # exclude the follow-up time
-
-            # Handle infection_type and age_group for default case (not encoded as 1)
-            if infection_type == 0:
-                infection_mask = np.all(infection == 0, axis=-1)
-            else:
-                infection_mask = infection[:, :, infection_type - 1] == 1
-
-            if age_group == 0:
-                age_mask = np.all(age == 0, axis=-1)
-            else:
-                age_mask = age[:, :, age_group - 1] == 1
-
-            # Combine masks to get the desired people
-            combined_mask = infection_mask & age_mask & valid_time_mask
-
-            # Calculate percentage
-            total_people = replicate[valid_time_mask].shape[0]
-            selected_people = replicate[combined_mask]
-            percentages[i] += (selected_people.shape[0] / total_people) if total_people > 0 else 0
-    return percentages
+# def plot_attention_scores(
+#         attention_scores: np.ndarray,
+#         valid_data: Optional[np.ndarray] = None,
+#         batch_idx: Optional[int] = None,
+#         head_idx: Optional[int] = None,
+#         group_idx: Optional[int] = None,
+#         normalize: bool = True
+# ):
+#     """
+#     Plots a heatmap of attention scores for a specific batch, head or group.
+#
+#     Parameters:
+#     -----------
+#     attention_scores : tf.Tensor
+#         Attention scores tensor of shape (batch_size, num_heads, n_time_steps, n_groups, n_time_steps).
+#     head_idx : int
+#         Index of the attention head to visualize.
+#     group_idx : int
+#         Index of the group to visualize.
+#     """
+#
+#     if attention_scores.ndim == 5:  # time_attention
+#         # Extract the scores for the given batch, head, and group
+#         if group_idx is None:
+#             scores = tf.reduce_mean(attention_scores, axis=3)  # Average over groups
+#         else:
+#             scores = attention_scores[:, :, :, group_idx, :]
+#         if batch_idx is None:
+#             scores = tf.reduce_mean(scores, axis=0)  # average over batches
+#         else:
+#             scores = scores[batch_idx]
+#         if head_idx is None:
+#             scores = tf.reduce_mean(scores, axis=0).numpy()  # Shape: (9, 9)
+#         else:
+#             scores = scores[head_idx].numpy()  # Shape: (9, 9)
+#
+#         first_inv_idx, time_labels = None, None
+#         if valid_data is not None and batch_idx is not None and group_idx is not None:
+#             time_labels = valid_data['sim_data'][batch_idx, group_idx, :, 0]  # Extract time step label
+#             first_inv_idx = np.where(valid_data['sim_data'][batch_idx, group_idx, :, 0] != 0)[0][0]
+#
+#         # Normalize the scores
+#         if normalize:
+#             scores = (scores - np.min(scores)) / (np.max(scores) - np.min(scores))
+#
+#         # Plot the heatmap
+#         plt.figure(figsize=(8, 6))
+#         plt.imshow(scores, cmap='viridis', aspect='auto')
+#         if normalize:
+#             plt.colorbar(label='Normalized Attention Score')
+#         else:
+#             plt.colorbar(label='Attention Score')
+#         plt.title(f"Attention Scores for, Head {head_idx}")
+#         plt.xlabel('Key/Value Time Steps')
+#         plt.ylabel('Query Time Steps')
+#         if first_inv_idx is not None:
+#             # Add a vertical line at the index of first infected
+#             plt.vlines(x=first_inv_idx - 0.5, ymin=first_inv_idx - 0.5, ymax=scores.shape[0] - 0.5,
+#                        color='red', linestyle='--', label='First 1')
+#             plt.hlines(y=first_inv_idx - 0.5, xmin=first_inv_idx - 0.5, xmax=scores.shape[0] - 0.5,
+#                        color='red', linestyle='--', label='First 1')
+#
+#         # Set time step labels if available
+#         if time_labels is not None:
+#             plt.xticks(ticks=np.arange(len(time_labels)), labels=time_labels, rotation=45, ha='right')
+#             plt.yticks(ticks=np.arange(len(time_labels)), labels=time_labels)
+#
+#         plt.show()
+#
+#     elif attention_scores.ndim == 3:
+#         scores = attention_scores.numpy()
+#         if batch_idx is not None and head_idx is not None:
+#             scores = scores[batch_idx, head_idx]
+#         elif batch_idx is not None:
+#             scores = scores[batch_idx].T
+#         elif head_idx is not None:
+#             scores = scores[:, head_idx].T
+#         else:
+#             scores = np.mean(scores, axis=(0,1))
+#
+#         # plot scores per group
+#         plt.hist(scores)
+#         plt.xlabel(f'Attention Scores, Batch {batch_idx}, Head {head_idx}')
+#         plt.show()
+#
+#     else:
+#         raise ValueError(f'wrong dimensions of attention scores: {attention_scores.ndim}')
+#     return
+#
+#
+# def plot_attention_scores_plotly(
+#         attention_scores: np.ndarray,
+#         valid_data: Optional[np.ndarray] = None,
+#         batch_idx: Optional[int] = None,
+#         head_idx: Optional[int] = None,
+#         group_idx: Optional[int] = None,
+#         normalize: bool = True
+# ):
+#     """
+#     Plots a heatmap of attention scores for a specific batch, head, or group using Plotly.
+#
+#     Parameters:
+#     -----------
+#     attention_scores : np.ndarray
+#         Attention scores tensor of shape (batch_size, num_heads, n_time_steps, n_groups, n_time_steps).
+#     valid_data : np.ndarray
+#         Optional data containing time step information.
+#     batch_idx : int
+#         Index of the batch to visualize.
+#     head_idx : int
+#         Index of the attention head to visualize.
+#     group_idx : int
+#         Index of the group to visualize.
+#     normalize : bool
+#         Whether to normalize the attention scores.
+#     """
+#     import plotly.graph_objects as go
+#
+#     # Extract the scores for the given batch, head, and group
+#     if group_idx is None:
+#         scores = np.mean(attention_scores, axis=3)  # Average over groups
+#     else:
+#         scores = attention_scores[:, :, :, group_idx, :]
+#     if batch_idx is None:
+#         scores = np.mean(scores, axis=0)  # Average over batches
+#     else:
+#         scores = scores[batch_idx, :, :, :]
+#     if head_idx is None:
+#         scores = np.mean(scores, axis=0)  # Shape: (n_time_steps, n_time_steps)
+#     else:
+#         scores = scores[head_idx, :, :]  # Shape: (n_time_steps, n_time_steps)
+#
+#     # Normalize the scores
+#     if normalize:
+#         scores = (scores - np.min(scores)) / (np.max(scores) - np.min(scores))
+#
+#     time_labels = None
+#     if valid_data is not None and batch_idx is not None and group_idx is not None:
+#         # Extract time labels and positions
+#         time_labels = valid_data['sim_data'][batch_idx, group_idx, :, 0]  # Extract time step label
+#         non_zero_indices = time_labels != 0
+#         scores = scores[non_zero_indices, :][:, non_zero_indices]
+#         time_labels = time_labels[non_zero_indices]
+#
+#     # Create edges for x and y if time positions are given
+#     if time_labels is not None:
+#         # Create edges for the heatmap blocks
+#         x_edges = time_labels
+#         y_edges = time_labels
+#     else:
+#         # Use default positions if time_positions is not provided
+#         n_time_steps = scores.shape[0]
+#         x_edges = np.arange(n_time_steps + 1)
+#         y_edges = np.arange(n_time_steps + 1)
+#
+#     # Create the heatmap using Plotly
+#     fig = go.Figure(
+#         data=go.Heatmap(
+#             z=scores,
+#             x=x_edges,
+#             y=y_edges,
+#             colorscale='Viridis',
+#             colorbar=dict(title='Normalized Attention Score' if normalize else 'Attention Score')
+#         )
+#     )
+#
+#     # Set the layout with labels and titles
+#     fig.update_layout(
+#         title=f"Attention Scores for Head {head_idx}",
+#         xaxis_title='Key/Value Time Steps',
+#         yaxis_title='Query Time Steps',
+#         xaxis=dict(tickmode='array', tickvals=(x_edges[:-1] + np.diff(x_edges) / 2), ticktext=time_labels, tickangle=90),
+#         yaxis=dict(tickmode='array', tickvals=(y_edges[:-1] + np.diff(y_edges) / 2), ticktext=time_labels, autorange='reversed'),
+#         width=800,
+#         height=600
+#     )
+#     fig.show()
+#     return
+#
+#
+# def percentage_infection_age(data: np.ndarray, param_name) -> np.ndarray:
+#     # infection_type: 0=not infected (default case), 1=symptomatic, 2=asymptomatic
+#     # age_group: 0=infants (default case), 1=children, 2=adults
+#     if param_name[-1] == 'A':
+#         age_group = 2
+#     elif param_name[-1] == 'C':
+#         age_group = 1
+#     else:
+#         age_group = 0
+#     if param_name[-2] == 'A':
+#         infection_types = [2]
+#     elif param_name[-2] == 'S':
+#         infection_types = [1]
+#     else:
+#         # parameter is susceptibility
+#         infection_types = [1, 2]
+#
+#     percentages = np.zeros(data.shape[0])
+#     for i, replicate in enumerate(data):
+#         for infection_type in infection_types:
+#             # Extract the infection and age columns
+#             time_points = replicate[:, :, 0]  # Time point
+#             infection = replicate[:, :, 1:3]  # Infection columns (one-hot encoded with first dropped)
+#             age = replicate[:, :, 3:5]  # Age group columns (one-hot encoded with first dropped)
+#
+#             # only count non zeros rows and remove end of follow up
+#             valid_time_mask = (time_points > 0)
+#             valid_time_mask[:, -1] = False  # exclude the follow-up time
+#
+#             # Handle infection_type and age_group for default case (not encoded as 1)
+#             if infection_type == 0:
+#                 infection_mask = np.all(infection == 0, axis=-1)
+#             else:
+#                 infection_mask = infection[:, :, infection_type - 1] == 1
+#
+#             if age_group == 0:
+#                 age_mask = np.all(age == 0, axis=-1)
+#             else:
+#                 age_mask = age[:, :, age_group - 1] == 1
+#
+#             # Combine masks to get the desired people
+#             combined_mask = infection_mask & age_mask & valid_time_mask
+#
+#             # Calculate percentage
+#             total_people = replicate[valid_time_mask].shape[0]
+#             selected_people = replicate[combined_mask]
+#             percentages[i] += (selected_people.shape[0] / total_people) if total_people > 0 else 0
+#     return percentages
