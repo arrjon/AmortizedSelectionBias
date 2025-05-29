@@ -1,30 +1,9 @@
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Dict, List, Union, Optional
+from typing import Dict, List, Union
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri, ListVector
-
-
-def dict_to_named_list(dct):
-    # function taken from pyabc
-    if (
-            isinstance(dct, dict)
-            or isinstance(dct, pd.core.series.Series)
-    ):
-        dct = dict(dct.items())
-        # convert numbers, numpy arrays and pandas dataframes to builtin
-        # types before conversion (see rpy2 #548)
-        with conversion.localconverter(
-                default_converter + pandas2ri.converter + numpy2ri.converter
-        ):
-            for key, val in dct.items():
-                dct[key] = conversion.py2rpy(val)
-        r_list = ListVector(dct)
-        return r_list
-    return dct
 
 
 class InfectionStatus(IntEnum):
