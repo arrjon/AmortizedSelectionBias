@@ -167,7 +167,7 @@ def plot_household_statistic(real_data_stats, sim_data_stats, results_folder):
             ax[0, i].set_title(f'Household Size {household_size}')
 
         for i, household_size in enumerate(
-                real_data_stats[variant]['household_sizes']):  # household size same as in real data
+                real_data_stats[variant]['household_sizes']):  # household size same as in real PedCov
             bottom = {0: 0, 1: 0, 2: 0}
             for age_group in sim_data_stats[variant]['infection_counts'].index:
                 if household_size not in sim_data_stats[variant]['infection_counts'].columns:
@@ -187,7 +187,7 @@ def plot_household_statistic(real_data_stats, sim_data_stats, results_folder):
         handles = [Patch(facecolor=color, label=age_group, alpha=0.5) for age_group, color in COLOR_AGE.items()]
         fig.legend(handles, COLOR_AGE.keys(),
                    loc='lower center', ncol=3, bbox_to_anchor=(0.5, -0.05))
-        plt.savefig(f'{results_folder}/real data/number_infections_{variant}.png', bbox_inches='tight')
+        plt.savefig(f'{results_folder}/real PedCov/number_infections_{variant}.png', bbox_inches='tight')
         plt.show()
 
     # plot the distribution of infection times
@@ -208,7 +208,7 @@ def plot_household_statistic(real_data_stats, sim_data_stats, results_folder):
                 ax[0, i].set_title(f'Household Size {household_size}')
 
             for i, household_size in enumerate(
-                    real_data_stats[variant]['household_sizes']):  # household size same as in real data
+                    real_data_stats[variant]['household_sizes']):  # household size same as in real PedCov
                 for status in sim_data_stats[variant][cofactor_type].index:
                     if status == 'not_infected' or household_size not in sim_data_stats[variant][cofactor_type].columns:
                         continue
@@ -223,6 +223,6 @@ def plot_household_statistic(real_data_stats, sim_data_stats, results_folder):
             handles = [Patch(facecolor=color, label=status, alpha=0.5) for status, color in colors.items()]
             fig.legend(handles, colors.keys(),
                        loc='lower center', ncol=3, bbox_to_anchor=(0.5, -0.05))
-            plt.savefig(f'{results_folder}/real data/infection_time_points_{variant}_{cofactor_type}.png',
+            plt.savefig(f'{results_folder}/real PedCov/infection_time_points_{variant}_{cofactor_type}.png',
                         bbox_inches='tight')
             plt.show()

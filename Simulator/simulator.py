@@ -45,7 +45,7 @@ PROCEDURES = ['pedcov', 'random', 'original_pedcov', 'original_random', 'adult',
 #               selection_procedure: str, variant: str, minimal_length: int = 9,
 #               return_norm: bool = True) -> dict:
 #     """
-#     Simulate data with given parameters and reformat it to a numpy array.
+#     Simulate PedCov with given parameters and reformat it to a numpy array.
 #     """
 #     if variant not in ['alpha', 'omicron']:
 #         raise ValueError(f"Variant '{variant}' not supported. Must be 'alpha' or 'omicron'.")
@@ -71,11 +71,11 @@ PROCEDURES = ['pedcov', 'random', 'original_pedcov', 'original_random', 'adult',
 #         'selection_procedure': str(selection_procedure)
 #     }
 #
-#     # simulate data
+#     # simulate PedCov
 #     sim_data_r = model_r(dict_to_named_list(par_dict))
 #     # convert to pandas dataframe
 #     sim_data_full = conversion.rpy2py(sim_data_r)
-#     # normalize data and return as numpy array
+#     # normalize PedCov and return as numpy array
 #     if return_norm:
 #         sim_data_norm = normalize_household_data(sim_data_full, minimal_length=minimal_length)
 #         return dict(sim_data=sim_data_norm)
@@ -87,11 +87,11 @@ PROCEDURES = ['pedcov', 'random', 'original_pedcov', 'original_random', 'adult',
 #                             batchable_context: [str, [float, float]],
 #                             minimal_length: int = 9) -> np.ndarray:
 #     """
-#     Simulate data for both variants with given parameters and reformat it to a numpy array.
+#     Simulate PedCov for both variants with given parameters and reformat it to a numpy array.
 #     :param log_params: parameters for the simulation
 #     :param batchable_context: selection procedure for the simulation (pedcov or random) and alpha value
-#     :param minimal_length: minimal length of the data
-#     :return: simulated data as numpy array
+#     :param minimal_length: minimal length of the PedCov
+#     :return: simulated PedCov as numpy array
 #     """
 #     selection_procedure, params_alpha = batchable_context
 #
@@ -103,7 +103,7 @@ PROCEDURES = ['pedcov', 'random', 'original_pedcov', 'original_random', 'adult',
 #     un_scaled_params = np.copy(log_params)  # copy to avoid changing input
 #     # create dict from param_names, params might have different length
 #     p_i = 0
-#     data = []
+#     PedCov = []
 #     for vi, variant in enumerate(['alpha', 'omicron']):
 #         par_dict = {}
 #
@@ -122,11 +122,11 @@ PROCEDURES = ['pedcov', 'random', 'original_pedcov', 'original_random', 'adult',
 #         # update dict with fixed hyperparameters, make sure these are strings
 #         par_dict.update({'variant': str(variant), 'selection_procedure': str(selection_procedure)})
 #
-#         # simulate data
+#         # simulate PedCov
 #         sim_data_r = model_r(dict_to_named_list(par_dict))
 #         # convert to pandas dataframe
 #         sim_data_full = conversion.rpy2py(sim_data_r)
-#         # normalize data and return as numpy array
+#         # normalize PedCov and return as numpy array
 #         sim_data_norm = normalize_household_data(sim_data_full, minimal_length=minimal_length)
 #         # add variant as feature
 #         if variant == 'alpha':
@@ -134,6 +134,6 @@ PROCEDURES = ['pedcov', 'random', 'original_pedcov', 'original_random', 'adult',
 #         else:
 #             variant_feature = np.ones((sim_data_norm.shape[0], minimal_length, 1))
 #         sim_data_norm = np.concatenate((sim_data_norm, variant_feature), axis=-1)
-#         # append data
-#         data.append(sim_data_norm)
-#     return np.concatenate(data, axis=0)
+#         # append PedCov
+#         PedCov.append(sim_data_norm)
+#     return np.concatenate(PedCov, axis=0)

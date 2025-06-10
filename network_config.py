@@ -68,7 +68,7 @@ def configurator(forward_dict: dict,
                  not_inform_selection: str = None, keep_selection: str = None, drop_n_households = False) -> dict:
     out_dict = {}
 
-    # Extract data (already normalized)
+    # Extract PedCov (already normalized)
     x = forward_dict["sim_data"]
     if drop_n_households:
         if isinstance(drop_n_households, bool):
@@ -142,7 +142,7 @@ def configurator_joint(forward_dict: dict,
                        not_inform_selection: str = None, keep_selection: str = None) -> dict:
     out_dict = {}
 
-    # Extract data (already normalized)
+    # Extract PedCov (already normalized)
     x = forward_dict["sim_data"]
     out_dict['summary_conditions'] = x.astype(np.float32)
 
@@ -201,7 +201,7 @@ def configurator_joint(forward_dict: dict,
 
 # define the network
 class GroupSummaryNetwork(tf.keras.Model):
-    """Network to summarize the data of groups of cells.  Each group is passed through a series of convolutional layers
+    """Network to summarize the PedCov of groups of cells.  Each group is passed through a series of convolutional layers
     followed by an LSTM layer. The output of the LSTM layer is then pooled across the groups and dense layer applied
     to obtain a summary of fixed dimensionality. The network is invariant to the order of the groups.
     """
@@ -389,8 +389,8 @@ def load_model(model_id: int, n_params: int, generative_model,
     :param prior_mean: the prior mean
     :param prior_std: the prior standard deviation
     :param train_network: whether to train the network
-    :param valid_data: validation data for training
-    :param presim_folder: folder with pre-simulated data
+    :param valid_data: validation PedCov for training
+    :param presim_folder: folder with pre-simulated PedCov
     :param amortizer_folder: folder to save the amortizer
     :param make_prior_relative: function to make the prior relative
     :param amortizer_return_attention_weights: whether to return attention weights (to diagnose attention)

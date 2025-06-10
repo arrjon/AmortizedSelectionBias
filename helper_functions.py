@@ -21,7 +21,7 @@ class AgeGroup(IntEnum):
 
 @dataclass
 class ProcessingConfig:
-    """Configuration parameters for data processing"""
+    """Configuration parameters for PedCov processing"""
     DATE_MAX: float = 1000.  # maximum date in the dataset
     AGE_MAX: float = 100.
     USE_ONE_HOT: bool = True
@@ -49,20 +49,20 @@ ENCODING_DICT = {
 
 def validate_input_data(df: pd.DataFrame) -> None:
     """
-    Validates input DataFrame for required columns and data integrity.
+    Validates input DataFrame for required columns and PedCov integrity.
 
     Args:
         df: Input DataFrame to validate
 
     Raises:
-        ValueError: If required columns are missing or data integrity issues are found
+        ValueError: If required columns are missing or PedCov integrity issues are found
     """
     required_columns = {'id_hh', 'date_sympt', 'infect_status', 'age_exact', 'protected', 'end_followup'}
     missing_columns = required_columns - set(df.columns)
     if missing_columns:
         raise ValueError(f"Missing required columns: {missing_columns}")
 
-    # Validate data types and ranges
+    # Validate PedCov types and ranges
     if df['id_hh'].isna().any():
         raise ValueError("id_hh contains missing values")
 
@@ -76,7 +76,7 @@ def validate_input_data(df: pd.DataFrame) -> None:
 
 def encode_row(row: pd.Series, encoding_dict: Dict) -> List[float]:
     """
-    Encodes a single row of data using the provided encoding dictionary.
+    Encodes a single row of PedCov using the provided encoding dictionary.
 
     Args:
         row: DataFrame row to encode
@@ -134,15 +134,15 @@ def process_household(
         config: ProcessingConfig
 ) -> np.ndarray:
     """
-    Processes data for a single household.
+    Processes PedCov for a single household.
 
     Args:
-        df_hh: DataFrame containing single household data
+        df_hh: DataFrame containing single household PedCov
         minimal_length: Minimum sequence length required
         config: Processing configuration
 
     Returns:
-        Processed household data as numpy array (n_features, time_steps)
+        Processed household PedCov as numpy array (n_features, time_steps)
     """
     if config.USE_ONE_HOT:
         encoded_data = df_hh.apply(lambda row: encode_row(row, ENCODING_DICT), axis=1)
@@ -159,7 +159,7 @@ def process_household(
             encoded_household[:, 5][:, np.newaxis],  # protection status
         ), axis=1)
 
-        # Sort only the main data by date (excluding follow-up)
+        # Sort only the main PedCov by date (excluding follow-up)
         order = np.argsort(household[:, 0])
         household = household[order]
 
@@ -168,7 +168,7 @@ def process_household(
         household = household.T  # transpose to have shape (n_features, n_members)
 
     else:
-        # Construct main household data
+        # Construct main household PedCov
         household = np.stack((
             df_hh['date_sympt_norm'].values,
             df_hh['infect_status'].values,
@@ -177,11 +177,11 @@ def process_household(
             df_hh['protected'].values
         ))
 
-        # Sort main data by date
+        # Sort main PedCov by date
         order = np.argsort(household[0])
         household = household[:, order]
 
-        # Add follow-up data as the last column
+        # Add follow-up PedCov as the last column
         follow_up = np.array([[df_hh['end_followup_norm'].iloc[0]], [-1], [-1], [-1], [-1]])
         household = np.concatenate((household, follow_up), axis=1)
 
@@ -198,22 +198,22 @@ def normalize_household_data(
         config: ProcessingConfig = ProcessingConfig()
 ) -> Union[np.ndarray, List[np.ndarray]]:
     """
-    Normalizes household data and returns it as a numpy array or list.
+    Normalizes household PedCov and returns it as a numpy array or list.
 
     Args:
-        df: Input DataFrame containing household data
+        df: Input DataFrame containing household PedCov
         minimal_length: Minimum sequence length required
         config: Processing configuration
 
     Returns:
-        Processed household data as either numpy array (n_households x time_steps x n_features)
+        Processed household PedCov as either numpy array (n_households x time_steps x n_features)
          or list depending on minimal_length
 
     Raises:
-        ValueError: If input data validation fails
+        ValueError: If input PedCov validation fails
     """
     try:
-        # Validate input data
+        # Validate input PedCov
         validate_input_data(df)
 
         # Normalize dates and age
@@ -232,7 +232,7 @@ def normalize_household_data(
         return all_households
 
     except Exception as e:
-        raise ValueError(f"Error processing household data: {e}")
+        raise ValueError(f"Error processing household PedCov: {e}")
 
 def shorten_follow_up_time(
         data: np.ndarray,
@@ -252,7 +252,7 @@ def shorten_follow_up_time(
         # multiple simulations, each with multiple households
         sim_data_list = data.copy()
     else:
-        raise ValueError(f"The data must have 3 or 4 dimensions, but has {data.ndim} dimensions.")
+        raise ValueError(f"The PedCov must have 3 or 4 dimensions, but has {data.ndim} dimensions.")
 
     for s_i, household_data in enumerate(sim_data_list):
         for household in household_data:
@@ -462,7 +462,7 @@ def measure_bias(true_values, estimated_values, param_names):
 #     attention_scores : np.ndarray
 #         Attention scores tensor of shape (batch_size, num_heads, n_time_steps, n_groups, n_time_steps).
 #     valid_data : np.ndarray
-#         Optional data containing time step information.
+#         Optional PedCov containing time step information.
 #     batch_idx : int
 #         Index of the batch to visualize.
 #     head_idx : int
@@ -513,7 +513,7 @@ def measure_bias(true_values, estimated_values, param_names):
 #
 #     # Create the heatmap using Plotly
 #     fig = go.Figure(
-#         data=go.Heatmap(
+#         PedCov=go.Heatmap(
 #             z=scores,
 #             x=x_edges,
 #             y=y_edges,
@@ -536,7 +536,7 @@ def measure_bias(true_values, estimated_values, param_names):
 #     return
 #
 #
-# def percentage_infection_age(data: np.ndarray, param_name) -> np.ndarray:
+# def percentage_infection_age(PedCov: np.ndarray, param_name) -> np.ndarray:
 #     # infection_type: 0=not infected (default case), 1=symptomatic, 2=asymptomatic
 #     # age_group: 0=infants (default case), 1=children, 2=adults
 #     if param_name[-1] == 'A':
@@ -553,8 +553,8 @@ def measure_bias(true_values, estimated_values, param_names):
 #         # parameter is susceptibility
 #         infection_types = [1, 2]
 #
-#     percentages = np.zeros(data.shape[0])
-#     for i, replicate in enumerate(data):
+#     percentages = np.zeros(PedCov.shape[0])
+#     for i, replicate in enumerate(PedCov):
 #         for infection_type in infection_types:
 #             # Extract the infection and age columns
 #             time_points = replicate[:, :, 0]  # Time point
