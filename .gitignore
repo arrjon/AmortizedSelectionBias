@@ -1,10 +1,7 @@
-presimulations
 log
-outdated
-train_bayesflow.py
-train_bayesflow_joint.py
-/Simulator/.Rhistory
+/PedCov/Sophie/
 .DS_Store
 **_stan_model
 /KoCo
 **.pickle
+.idea
