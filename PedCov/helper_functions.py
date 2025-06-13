@@ -2,8 +2,10 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Dict, List, Union
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 
 def list_of_dicts_to_dict_of_lists(list_of_dicts):
@@ -305,3 +307,45 @@ def get_household_statistic(data: np.ndarray) -> dict:
         'household_sizes': sorted(time_distribution_age.columns)
     }
     return out_dict
+
+
+# plot delay distribution
+def plot_delay_distribution(delayDist):
+    x = np.arange(0, 20, 0.1)
+    y_symp = stats.gamma.pdf(x+delayDist[2], a=delayDist[0], scale=1/delayDist[1])
+    y_asymp = stats.gamma.pdf(x+delayDist[5], a=delayDist[3], scale=1/delayDist[4])
+    plt.plot(x, y_symp, label='Symptomatic')
+    plt.plot(x, y_asymp, label='Asymptomatic')
+    plt.xlabel('Days')
+    plt.ylabel('Probability Density')
+    plt.title('Delay Distribution')
+    plt.legend()
+    plt.show()
+
+# plot incubation distribution
+def plot_incubation_distribution(shape, scale, shape_asym, scale_asym):
+    x = np.arange(0, 20, 0.1)
+    y = stats.gamma.pdf(x, a=shape, scale=scale)
+    plt.plot(x, y, label='Incubation Distribution Symptomatic')
+    y = np.ones_like(x) / (7 - 2)  # uniform distribution for asymptomatic
+    y[x < 2] = 0
+    y[x > 7] = 0
+    plt.plot(x, y, label='Incubation Distribution Asymptomatic (old)', linestyle='--')
+    y = stats.gamma.pdf(x, a=shape_asym, scale=scale_asym)
+    plt.plot(x, y, label='Incubation Distribution Asymptomatic')
+    plt.xlabel('Days')
+    plt.ylabel('Probability Density')
+    plt.title('Incubation Distribution')
+    plt.legend()
+    plt.show()
+
+# plot generation time distribution
+def plot_generation_time_distribution(shapeInf, scaleInf):
+    x = np.arange(0, 20, 0.1)
+    y = stats.gamma.pdf(x, a=shapeInf, scale=scaleInf)
+    plt.plot(x, y, label='Generation Time Distribution')
+    plt.xlabel('Lag (days)')
+    plt.ylabel('Probability Density')
+    plt.title('Generation Time Distribution')
+    plt.legend()
+    plt.show()

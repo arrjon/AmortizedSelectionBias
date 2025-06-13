@@ -195,12 +195,12 @@ model {
 
     // Only loop over household members (precomputed ranges)
     for (j_idx in hh_start_idx[household]:hh_end_idx[household]) {
-      if (infect_status[j_idx] > 0 && tau[j_idx] < tau[i]) {
+      // if (infect_status[j_idx] > 0 && tau[j_idx] < tau[i]) { -> mu_inf_array is 0 for susceptibles,
         real lag = tau[i] - tau[j_idx];
         real contrib = mu_protect_transm_array[j_idx] * mu_inf_array[j_idx];
-        sum_haz += contrib * f_lag(lag, kt_shape, kt_rate);
+        sum_haz += contrib * f_lag(lag, kt_shape, kt_rate);  // returns 0 for lag <= 0
         sum_cum += contrib * F_lag(lag, kt_shape, kt_rate);
-      }
+      // }
     }
 
     real lambda_i = alpha + beta * w[i] * mu_protect_acq_array[i] * mu_susc_array[i] * sum_haz;
@@ -223,10 +223,10 @@ model {
 
     // Only loop over household members
     for (j_idx in hh_start_idx[household]:hh_end_idx[household]) {
-      if (infect_status[j_idx] > 0 && tau[j_idx] < T) {
+      // if (infect_status[j_idx] > 0 && tau[j_idx] < T) { -> mu_inf_array is 0 for susceptibles,
         real lag = T - tau[j_idx];
-        sum_cum += mu_protect_transm_array[j_idx] * mu_inf_array[j_idx] * F_lag(lag, kt_shape, kt_rate);
-      }
+        sum_cum += mu_protect_transm_array[j_idx] * mu_inf_array[j_idx] * F_lag(lag, kt_shape, kt_rate);  // returns 0 for lag <= 0
+      // }
     }
 
     real H_i = alpha * (T-first_tau) + beta * w[i] * mu_protect_acq_array[i] * mu_susc_array[i] * sum_cum;

@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 from scipy import stats
-import matplotlib.pyplot as plt
 
 from PedCov.selection import data_selection
 from PedCov.helper_functions import normalize_household_data
@@ -127,7 +126,6 @@ def simulate_outbreak(
 
     # round dates to nearest integer
     obs_time_final = np.round(obs_time_final).astype(np.int64)
-    #inf_date = np.round(inf_date).astype(np.int64)
     incl_dt = np.round(incl_dt).astype(np.int64)
     end_time = np.round(end_time).astype(np.int64)
 
@@ -140,48 +138,6 @@ def simulate_outbreak(
         'is_inclu':    is_inclu,
         'inf_date':    inf_date,
     }
-
-
-# plot delay distribution
-def plot_delay_distribution(delayDist):
-    x = np.arange(0, 20, 0.1)
-    y_symp = stats.gamma.pdf(x+delayDist[2], a=delayDist[0], scale=1/delayDist[1])
-    y_asymp = stats.gamma.pdf(x+delayDist[5], a=delayDist[3], scale=1/delayDist[4])
-    plt.plot(x, y_symp, label='Symptomatic')
-    plt.plot(x, y_asymp, label='Asymptomatic')
-    plt.xlabel('Days')
-    plt.ylabel('Probability Density')
-    plt.title('Delay Distribution')
-    plt.legend()
-    plt.show()
-
-# plot incubation distribution
-def plot_incubation_distribution(shape, scale, shape_asym, scale_asym):
-    x = np.arange(0, 20, 0.1)
-    y = stats.gamma.pdf(x, a=shape, scale=scale)
-    plt.plot(x, y, label='Incubation Distribution Symptomatic')
-    y = np.ones_like(x) / (7 - 2)  # uniform distribution for asymptomatic
-    y[x < 2] = 0
-    y[x > 7] = 0
-    plt.plot(x, y, label='Incubation Distribution Asymptomatic (old)', linestyle='--')
-    y = stats.gamma.pdf(x, a=shape_asym, scale=scale_asym)
-    plt.plot(x, y, label='Incubation Distribution Asymptomatic')
-    plt.xlabel('Days')
-    plt.ylabel('Probability Density')
-    plt.title('Incubation Distribution')
-    plt.legend()
-    plt.show()
-
-# plot generation time distribution
-def plot_generation_time_distribution(shapeInf, scaleInf):
-    x = np.arange(0, 20, 0.1)
-    y = stats.gamma.pdf(x, a=shapeInf, scale=scaleInf)
-    plt.plot(x, y, label='Generation Time Distribution')
-    plt.xlabel('Lag (days)')
-    plt.ylabel('Probability Density')
-    plt.title('Generation Time Distribution')
-    plt.legend()
-    plt.show()
 
 # -----------------------------------------------------------------------------
 # Python wrapper to run across all households
@@ -196,7 +152,7 @@ class OutbreakSimulator:
             self.p_asympto = 0.22
             mean_incub, sd_incub = 4.42, 2.3
             #self.minIncub, self.maxIncub = 2, 7
-            self.shapeIncubAsymp = 4.0  # similar to uniform distribution before
+            self.shapeIncubAsymp = 4.0  # note: similar to uniform distribution before
             self.scaleIncubAsymp = 1.286
 
             self.shape_generation_time, self.scale_generation_time = 2, 1/0.44
@@ -205,7 +161,7 @@ class OutbreakSimulator:
             self.p_asympto = 0.25
             mean_incub, sd_incub = 3.09, 1.64
             #self.minIncub, self.maxIncub = 1, 5
-            self.shapeIncubAsymp = 7.0  # similar to uniform distribution before
+            self.shapeIncubAsymp = 7.0  # note: similar to uniform distribution before
             self.scaleIncubAsymp = 2/3
 
             self.shape_generation_time, self.scale_generation_time = 3.531, 1/1.098
