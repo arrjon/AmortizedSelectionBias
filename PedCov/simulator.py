@@ -147,6 +147,7 @@ class OutbreakSimulator:
         self.variant   = variant
         self.n_repeat  = n_repeat
         self.minimal_length = 9  # minimal length of the household PedCov -> time steps
+        self.max_n_households = 128  # number of households to simulate in alpha wave (omicron only 54)
 
         if variant == "alpha":
             self.p_asympto = 0.22
@@ -265,6 +266,16 @@ class OutbreakSimulator:
                 new_data = new_data_full.copy()
             else:
                 new_data = data_selection(new_data_full, variant=self.variant, method=sp)
+
+            # append zeros to get the same length for all households
+            unique_hh = new_data['id_hh'].unique()
+            if len(unique_hh) < self.max_n_households:
+                n_add = self.max_n_households - len(unique_hh)
+                zeros = pd.DataFrame(np.zeros((n_add, new_data.shape[1])), columns=new_data.columns)
+                zeros['id_hh'] = [f"{len(unique_hh) + i+1}" for i in range(n_add)]
+                new_data = pd.concat([new_data, zeros], ignore_index=True)
+
+            # add some more columns
             new_data['select_process'] = sp
             new_data['variant'] = self.variant
             new_data = new_data[['id_patient', 'id_hh', 'id_hh_origin', 'hh_size', 'date_sympt',

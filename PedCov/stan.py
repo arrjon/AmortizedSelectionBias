@@ -21,6 +21,12 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
     required_columns = ['id_hh', 'id_patient', 'end_followup', 'date_sympt', 'age', 'infect_status', 'protected']
     if not all(column in obs_df.columns for column in required_columns):
         raise ValueError(f"DataFrame is missing one or more required columns: {required_columns}")
+    if not simulator.variant in ['alpha', 'omicron']:
+        raise ValueError(f"Simulator variant '{simulator.variant}' is not supported. Supported variants are 'alpha' and 'omicron'.")
+    if simulator.variant == 'omicron' and use_simple_model:
+        raise ValueError("The simple model is not compatible with the Omicron variant. Please use the full model.")
+    if simulator.variant == 'omicron':  # todo: implement Omicron variant if needed
+        raise NotImplementedError("The Omicron variant is not implemented yet.")
 
     # Sort by household and patient ID for consistent indexing
     df_sorted = obs_df.sort_values(['id_hh', 'id_patient']).reset_index(drop=True)
