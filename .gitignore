@@ -3,6 +3,7 @@ log
 /PedCov/data/
 .DS_Store
 **_stan_model
+**_stan_model_simple
 /KoCo
 **.pickle
 .idea

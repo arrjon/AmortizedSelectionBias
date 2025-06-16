@@ -4,8 +4,9 @@ from cmdstanpy import CmdStanModel
 
 
 stan_model = CmdStanModel(stan_file='PedCov/pedcov_stan_model.stan')
+simple_stan_model = CmdStanModel(stan_file='PedCov/pedcov_stan_model_simple.stan')
 
-def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=False):
+def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=False, use_simple_model=False):
     """
     Prepare PedCov and fit the household infection model
 
@@ -13,6 +14,8 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
     obs_df: DataFrame
     max_t: maximum follow-up time
     chains: number of MCMC chains
+    show_progress: whether to show progress during sampling
+    use_simple_model: if True, use a simplified Stan model for testing (without latent incubation variables)
     """
     # Ensure necessary columns are present
     required_columns = ['id_hh', 'id_patient', 'end_followup', 'date_sympt', 'age', 'infect_status', 'protected']
@@ -125,7 +128,11 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
         print(f"  Protected individuals: {sum(protected)}")
 
     # Fit the model to the PedCov
-    fit = stan_model.sample(
+    if use_simple_model:
+        stan_model_to_use = simple_stan_model  # without fitting latent incubation variables
+    else:
+        stan_model_to_use = stan_model
+    fit = stan_model_to_use.sample(
         data=stan_data,
         show_progress=show_progress,
         chains=chains,
@@ -135,5 +142,5 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
     # Extract posterior samples
     param_samples = {}
     for param in param_names:
-        param_samples[param] = fit.draws_pd(param)
+        param_samples[param] = fit.draws_pd(param).values
     return param_samples
