@@ -56,13 +56,13 @@ ENCODING_DICT = {
         InfectionStatus.INFECTED_ASYMPTOMATIC: [0, 0, 1],
     },
     'age': {
-        AgeGroup.INFANT: [1, 0, 0],
-        AgeGroup.CHILD: [0, 1, 0],
-        AgeGroup.OLDER: [0, 0, 1],
+        AgeGroup.INFANT: [0],
+        AgeGroup.CHILD: [1],
+        AgeGroup.OLDER: [2],
     },
     'protected': {
-        0: [1, 0],  # not protected
-        1: [0, 1]  # protected
+        0: [0],  # not protected
+        1: [1]  # protected
     }
 }
 
@@ -77,7 +77,7 @@ def validate_input_data(df: pd.DataFrame) -> None:
     Raises:
         ValueError: If required columns are missing or PedCov integrity issues are found
     """
-    required_columns = {'id_hh', 'date_sympt', 'infect_status', 'age_exact', 'protected', 'end_followup'}
+    required_columns = {'id_hh', 'date_sympt', 'infect_status', 'age_exact', 'protected', 'hh_size', 'end_followup'}
     missing_columns = required_columns - set(df.columns)
     if missing_columns:
         raise ValueError(f"Missing required columns: {missing_columns}")
@@ -170,10 +170,11 @@ def process_household(
 
         # Construct household array without follow-up
         household = np.concatenate((
-            encoded_household[:, :7],  # measurement time, infection status, age group
+            encoded_household[:, :5],  # measurement time, infection status, age group
             df_hh['age_exact_norm'].values[:, np.newaxis],
-            encoded_household[:, 7:],  # protection status
-            df_hh['end_followup_norm'].values[:, np.newaxis]
+            encoded_household[:, 5:],  # protection status
+            df_hh['hh_size'].values[:, np.newaxis],  # household size
+            df_hh['end_followup_norm'].values[:, np.newaxis],
         ), axis=1)
 
         # Sort only the main PedCov by date (excluding not infected)
@@ -194,6 +195,7 @@ def process_household(
             df_hh['age'].values,  # age_group
             df_hh['age_exact_norm'].values,
             df_hh['protected'].values,
+            df_hh['hh_size'].values,
             df_hh['end_followup_norm'].values
         ))
 
