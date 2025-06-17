@@ -42,7 +42,7 @@ class AgeGroup(IntEnum):
 @dataclass
 class ProcessingConfig:
     """Configuration parameters for PedCov processing"""
-    DATE_MAX: float = 1000.  # maximum date in the dataset
+    DATE_MAX: float = 200.  # maximum date in the dataset
     AGE_MAX: float = 100.
     USE_ONE_HOT: bool = True
     NOT_INFECTED_DATE: float = 1000.  # special value indicating not infected until end of follow up
@@ -51,18 +51,18 @@ class ProcessingConfig:
 # One-hot encoding dictionaries
 ENCODING_DICT = {
     'infect_status': {
-        InfectionStatus.NOT_INFECTED: [0, 0],
-        InfectionStatus.INFECTED_SYMPTOMATIC: [1, 0],
-        InfectionStatus.INFECTED_ASYMPTOMATIC: [0, 1],
+        InfectionStatus.NOT_INFECTED: [1, 0, 0],
+        InfectionStatus.INFECTED_SYMPTOMATIC: [0, 1, 0],
+        InfectionStatus.INFECTED_ASYMPTOMATIC: [0, 0, 1],
     },
     'age': {
-        AgeGroup.INFANT: [0, 0],
-        AgeGroup.CHILD: [1, 0],
-        AgeGroup.OLDER: [0, 1],
+        AgeGroup.INFANT: [1, 0, 0],
+        AgeGroup.CHILD: [0, 1, 0],
+        AgeGroup.OLDER: [0, 0, 1],
     },
     'protected': {
-        0: [0],  # not protected
-        1: [1]  # protected
+        0: [1, 0],  # not protected
+        1: [0, 1]  # protected
     }
 }
 
@@ -139,8 +139,8 @@ def normalize_dates_and_age(
     # Normalize end followup dates
     df['end_followup_norm'] = df['end_followup'] / config.DATE_MAX
 
-    # For non-infected cases, use end_followup_norm
-    df.loc[~mask_infected, 'date_sympt_norm'] = df.loc[~mask_infected, 'end_followup_norm']
+    # Non-infected cases
+    df.loc[~mask_infected, 'date_sympt_norm'] = config.NOT_INFECTED_DATE  # later replaced with -1
 
     # Normalize age
     df['age_exact_norm'] = df['age_exact'] / config.AGE_MAX
@@ -168,24 +168,23 @@ def process_household(
         encoded_data = df_hh.apply(lambda row: encode_row(row, ENCODING_DICT), axis=1)
         encoded_household = np.array(encoded_data.tolist())
 
-        # Create follow-up array
-        follow_up = -np.ones((encoded_household.shape[1] + 1, 1))
-        follow_up[0, 0] = df_hh['end_followup_norm'].iloc[0]
-
         # Construct household array without follow-up
         household = np.concatenate((
-            encoded_household[:, :5],  # measurement time, infection status, age group
+            encoded_household[:, :7],  # measurement time, infection status, age group
             df_hh['age_exact_norm'].values[:, np.newaxis],
-            encoded_household[:, 5][:, np.newaxis],  # protection status
+            encoded_household[:, 7:],  # protection status
+            df_hh['end_followup_norm'].values[:, np.newaxis]
         ), axis=1)
 
-        # Sort only the main PedCov by date (excluding follow-up)
+        # Sort only the main PedCov by date (excluding not infected)
         order = np.argsort(household[:, 0])
         household = household[order]
 
-        # Add follow-up as the last row after sorting
-        household = np.concatenate((household, follow_up.T), axis=0)
-        household = household.T  # transpose to have shape (n_features, n_members)
+        # replace not infected date with -1
+        household[household[:, 0] == config.NOT_INFECTED_DATE, 0] = -1
+
+        # transpose to have shape (n_features, n_members)
+        household = household.T
 
     else:
         # Construct main household PedCov
@@ -194,16 +193,13 @@ def process_household(
             df_hh['infect_status'].values,
             df_hh['age'].values,  # age_group
             df_hh['age_exact_norm'].values,
-            df_hh['protected'].values
+            df_hh['protected'].values,
+            df_hh['end_followup_norm'].values
         ))
 
         # Sort main PedCov by date
         order = np.argsort(household[0])
         household = household[:, order]
-
-        # Add follow-up PedCov as the last column
-        follow_up = np.array([[df_hh['end_followup_norm'].iloc[0]], [-1], [-1], [-1], [-1]])
-        household = np.concatenate((household, follow_up), axis=1)
 
     # Pad if necessary
     if household.shape[1] < minimal_length:

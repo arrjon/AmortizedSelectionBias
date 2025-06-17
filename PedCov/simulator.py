@@ -146,7 +146,7 @@ class OutbreakSimulator:
     def __init__(self, variant='alpha', n_repeat=50):
         self.variant   = variant
         self.n_repeat  = n_repeat
-        self.minimal_length = 9  # minimal length of the household PedCov -> time steps
+        self.minimal_length = 8  # minimal length of the household PedCov -> time steps
         self.max_n_households = 128  # number of households to simulate in alpha wave (omicron only 54)
 
         if variant == "alpha":
