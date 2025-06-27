@@ -4,6 +4,7 @@ log
 .DS_Store
 **_stan_model
 **_stan_model_simple
+**_stan_model_omicron
 /KoCo
 **.pickle
 .idea

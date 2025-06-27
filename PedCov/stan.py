@@ -3,8 +3,9 @@ import numpy as np
 from cmdstanpy import CmdStanModel
 
 
-stan_model = CmdStanModel(stan_file='PedCov/pedcov_stan_model.stan')
-simple_stan_model = CmdStanModel(stan_file='PedCov/pedcov_stan_model_simple.stan')
+stan_model = CmdStanModel(stan_file='PedCov/pedcov_stan_model.stan')  # for alpha variant
+stan_model_omicron = CmdStanModel(stan_file='PedCov/pedcov_stan_model_omicron.stan')  # for omicron variant
+simple_stan_model = CmdStanModel(stan_file='PedCov/pedcov_stan_model_simple.stan')  # only alpha variant
 
 def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=False, use_simple_model=False):
     """
@@ -25,8 +26,6 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
         raise ValueError(f"Simulator variant '{simulator.variant}' is not supported. Supported variants are 'alpha' and 'omicron'.")
     if simulator.variant == 'omicron' and use_simple_model:
         raise ValueError("The simple model is not compatible with the Omicron variant. Please use the full model.")
-    if simulator.variant == 'omicron':  # todo: implement Omicron variant if needed
-        raise NotImplementedError("The Omicron variant is not implemented yet.")
 
     # Sort by household and patient ID for consistent indexing
     df_sorted = obs_df.sort_values(['id_hh', 'id_patient']).reset_index(drop=True)
@@ -136,6 +135,8 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
     # Fit the model to the PedCov
     if use_simple_model:
         stan_model_to_use = simple_stan_model  # without fitting latent incubation variables
+    elif simulator.variant == 'omicron':
+        stan_model_to_use = stan_model_omicron
     else:
         stan_model_to_use = stan_model
     fit = stan_model_to_use.sample(
