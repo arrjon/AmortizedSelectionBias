@@ -213,6 +213,7 @@ def process_household(
 def normalize_household_data(
         df: pd.DataFrame,
         minimal_length: int,
+        n_households: int = 128,
         config: ProcessingConfig = ProcessingConfig()
 ) -> Union[np.ndarray, List[np.ndarray]]:
     """
@@ -221,6 +222,7 @@ def normalize_household_data(
     Args:
         df: Input DataFrame containing household PedCov
         minimal_length: Minimum sequence length required
+        n_households: Number of households to process (default is 128). Will apply padding if less households are present.
         config: Processing configuration
 
     Returns:
@@ -243,6 +245,11 @@ def normalize_household_data(
             df_hh = df[df['id_hh'] == id_hh]
             household = process_household(df_hh, minimal_length, config)
             all_households.append(household.T)  # switch now to (time_steps x n_features)
+
+        # Pad if necessary
+        if len(all_households) < n_households:
+            padding = np.zeros((minimal_length, all_households[0].shape[1]))
+            all_households.extend([padding] * (n_households - len(all_households)))
 
         # Stack or return as list based on minimal_length
         if minimal_length > 0:

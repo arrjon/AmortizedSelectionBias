@@ -8,7 +8,7 @@ from PedCov.helper_functions import normalize_household_data
 
 def simulate_outbreak(
     hh_size, duration_followup, age_cat, protected, p_asympto,
-    inc_shape_asymp, inc_scale_asymp, inc_shape_symp, inc_scale_symp,
+    inc_shape_asymp, inc_scale_asymp, inc_shape_symp, inc_scale_symp, simple_simulation,
     kt_shape, kt_rate, delayDist, alpha, beta, delta,
     mu_inf_SI, mu_inf_SC, mu_inf_AI, mu_inf_AC, mu_inf_AA,
     mu_susc_I, mu_susc_C, mu_protect_acq, mu_protect_transm,
@@ -32,6 +32,8 @@ def simulate_outbreak(
     else:
         infect_status[idx] = 1
         incubation = np.random.gamma(inc_shape_symp, inc_scale_symp)
+    if simple_simulation:
+        incubation = 3
     obs_time[idx] = inf_date[idx] + incubation
 
     # precompute w
@@ -93,6 +95,8 @@ def simulate_outbreak(
             else:
                 infect_status[i] = 1
                 incubation = np.random.gamma(inc_shape_symp, inc_scale_symp)
+            if simple_simulation:
+                incubation = 3
             obs_time[i] = t + incubation
         t += dt
 
@@ -143,11 +147,11 @@ def simulate_outbreak(
 # Python wrapper to run across all households
 # -----------------------------------------------------------------------------
 class OutbreakSimulator:
-    def __init__(self, variant='alpha', n_repeat=50):
+    def __init__(self, variant='alpha', n_repeat=50, simple_simulation=False):
         self.variant   = variant
         self.n_repeat  = n_repeat
         self.minimal_length = 8  # minimal length of the household PedCov -> time steps
-        self.max_n_households = 128  # number of households to simulate in alpha wave (omicron only 54)
+        self.simple_simulation = simple_simulation  # whether to use incubation delay or not
 
         if variant == "alpha":
             self.p_asympto = 0.22
@@ -228,6 +232,7 @@ class OutbreakSimulator:
                 inc_scale_asymp=self.scaleIncubAsymp,
                 inc_shape_symp=self.shapeIncub,
                 inc_scale_symp=self.scaleIncub,
+                simple_simulation=self.simple_simulation,
                 kt_shape=self.shape_generation_time,
                 kt_rate=1/self.scale_generation_time,
                 delayDist=self.delayDist,
@@ -266,14 +271,6 @@ class OutbreakSimulator:
                 new_data = new_data_full.copy()
             else:
                 new_data = data_selection(new_data_full, variant=self.variant, method=sp)
-
-            # append zeros to get the same length for all households
-            unique_hh = new_data['id_hh'].unique()
-            if len(unique_hh) < self.max_n_households:
-                n_add = self.max_n_households - len(unique_hh)
-                zeros = pd.DataFrame(np.zeros((n_add, new_data.shape[1])), columns=new_data.columns)
-                zeros['id_hh'] = [f"{len(unique_hh) + i+1}" for i in range(n_add)]
-                new_data = pd.concat([new_data, zeros], ignore_index=True)
 
             # add some more columns
             new_data['select_process'] = sp
