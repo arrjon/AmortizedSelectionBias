@@ -4,6 +4,8 @@ from typing import Dict, List, Union
 
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -486,4 +488,113 @@ def sampling_parameter_cis(
     handles, labels = plt.gca().get_legend_handles_labels()
     by_label = dict(zip(labels, handles))
     ax.legend(by_label.values(), by_label.keys(), bbox_to_anchor=(1, 1))
+    return ax
+
+
+def sampling_parameter_cis_variants(
+    results: dict[str, dict],
+    variants: list[str],
+    param_names: list[str] = None,
+    alpha: list[int] = None,
+    step: float = 0.05,
+    show_median: bool = True,
+    title: str = None,
+    size: tuple[float, float] = None,
+    ax: matplotlib.axes.Axes = None,
+    key: str = 'posterior_samples'
+) -> matplotlib.axes.Axes:
+    """
+    Plot MCMC-based parameter credibility intervals for multiple variants,
+    using colored boxes per variant (no grey on-plot), but grey patches
+    in the legend for CR levels.
+    """
+    if alpha is None:
+        alpha = [95]
+    alpha_sorted = sorted(alpha, reverse=True)
+    n_levels = len(alpha_sorted)
+
+    # pick a distinct color for each variant
+    cmap = plt.get_cmap("tab10")
+    variant_colors = [cmap(i) for i in range(len(variants))]
+
+    # number of parameters
+    sample0 = results[variants[0]][key]
+    n_pars = len(sample0)
+
+    # vertical offsets so that each variant is centered on its own y
+    height_per_variant = step * (n_levels * 2 + 1)
+    variant_offsets = [
+        (i - (len(variants)-1)/2) * height_per_variant
+        for i in range(len(variants))
+    ]
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=size, tight_layout=True)
+
+    # draw each variant
+    for vi, variant in enumerate(variants):
+        samples = np.stack([
+            results[variant][key][p][0, :, 0]
+            for p in param_names
+        ], axis=-1)
+
+        for npar in range(n_pars):
+            base_y = npar + variant_offsets[vi]
+            _step = step
+
+            for lvl_i, level in enumerate(alpha_sorted):
+                lb, ub = calculate_ci(samples, ci_level=level/100, axis=0)
+
+                xs = [lb[npar], ub[npar], ub[npar], lb[npar]]
+                ys = [
+                    base_y - _step,
+                    base_y - _step,
+                    base_y + _step,
+                    base_y + _step
+                ]
+                # fill with variant color, alpha lighter for smaller CIs
+                fill_alpha = 0.3 + 0.5 * (lvl_i / (n_levels-1) if n_levels>1 else 1)
+                ax.fill(
+                    xs, ys,
+                    facecolor=variant_colors[vi],
+                    edgecolor=variant_colors[vi],
+                    alpha=fill_alpha,
+                )
+                _step += step
+
+            # median line
+            if show_median:
+                med = np.median(samples[:, npar])
+                ax.plot(
+                    [med, med],
+                    [base_y - step, base_y + step],
+                    color='black', #variant_colors[vi],
+                    #linewidth=1
+                )
+
+    # styling
+    ax.axvline(1, color='grey', linestyle='--')
+    ax.set_yticks(range(n_pars))
+    if param_names is not None:
+        ax.set_yticklabels(param_names)
+    ax.set_xlabel("Parameter value")
+    ax.set_ylabel("Parameter")
+    if title:
+        ax.set_title(title)
+    ax.invert_yaxis()
+
+    # legend: grey patches for CI levels + colored lines for variants
+    ci_patches = [
+        Patch(facecolor=str(0.8 - i*0.2), edgecolor='none', label=f"{level}% CR")
+        for i, level in enumerate(alpha_sorted)
+    ]
+    variant_lines = [
+        Line2D([0], [0], color=variant_colors[i], lw=2, label=variants[i].title())
+        for i in range(len(variants))
+    ]
+    ax.legend(
+        handles = ci_patches + variant_lines,
+        bbox_to_anchor=(1,1),
+        frameon=False
+    )
     return ax
