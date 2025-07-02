@@ -1,5 +1,5 @@
 numpy~=1.26.4
-bayesflow~=2.0.3
+git+https://github.com/bayesflow-org/bayesflow.git@529-bug-serialization-of-the-broadcast-transformation
 pandas~=2.2.2
 matplotlib~=3.9.0
 scipy~=1.13.0
