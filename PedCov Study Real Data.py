@@ -364,7 +364,7 @@ for variant in variants:
         label_fontsize=22,
         legend_fontsize=24
     )
-    plt.savefig(f'plots/{scenario_name}_real_posterior_{variant}.png', bbox_inches='tight')
+    plt.savefig(f'plots/{scenario_name}_real_posterior_{variant}.pdf', bbox_inches='tight')
     plt.show()
 
     fig = bf.diagnostics.pairs_posterior(
@@ -374,7 +374,7 @@ for variant in variants:
         label_fontsize=22,
         legend_fontsize=24
     )
-    plt.savefig(f'plots/{scenario_name}_real_stan_posterior_{variant}.png', bbox_inches='tight')
+    plt.savefig(f'plots/{scenario_name}_real_stan_posterior_{variant}.pdf', bbox_inches='tight')
     plt.show()
 #%%
 # plot credible intervals for each parameter and each variant
@@ -387,7 +387,7 @@ for variant in variants:
     ax.vlines(1, ymin=1.75, ymax=8.25, color='grey', linestyle='--')
     ax.set_title("")
     ax.legend().remove()
-    plt.savefig(f'plots/{scenario_name}_real_CIs_{variant}.png', bbox_inches='tight')
+    plt.savefig(f'plots/{scenario_name}_real_CIs_{variant}.pdf', bbox_inches='tight')
     plt.show()
 
     stan_posterior_samples = np.stack([real_data_results[variant]['stan_posterior_samples'][p][0, :, 0]
@@ -398,7 +398,7 @@ for variant in variants:
     ax.vlines(1, ymin=1.75, ymax=8.25, color='grey', linestyle='--')
     ax.set_title("")
     ax.legend().remove()
-    plt.savefig(f'plots/{scenario_name}_real_stan_CIs_{variant}.png', bbox_inches='tight')
+    plt.savefig(f'plots/{scenario_name}_real_stan_CIs_{variant}.pdf', bbox_inches='tight')
     plt.show()
 #%%
 ax = sampling_parameter_cis_variants(
@@ -411,7 +411,7 @@ ax = sampling_parameter_cis_variants(
     size=(7, 3),
     key='posterior_samples'
 )
-plt.savefig(f'plots/{scenario_name}_real_CIs_both_variants.png', bbox_inches='tight')
+plt.savefig(f'plots/{scenario_name}_real_CIs_both_variants.pdf', bbox_inches='tight')
 plt.show()
 
 ax = sampling_parameter_cis_variants(
@@ -424,6 +424,6 @@ ax = sampling_parameter_cis_variants(
     size=(7, 3),
     key='stan_posterior_samples'
 )
-plt.savefig(f'plots/{scenario_name}_real_stan_CIs_both_variants.png', bbox_inches='tight')
+plt.savefig(f'plots/{scenario_name}_real_stan_CIs_both_variants.pdf', bbox_inches='tight')
 plt.show()
 #%%

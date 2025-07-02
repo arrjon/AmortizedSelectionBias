@@ -501,7 +501,8 @@ def sampling_parameter_cis_variants(
     title: str = None,
     size: tuple[float, float] = None,
     ax: matplotlib.axes.Axes = None,
-    key: str = 'posterior_samples'
+    key: str = 'posterior_samples',
+    show_legend: bool = False
 ) -> matplotlib.axes.Axes:
     """
     Plot MCMC-based parameter credibility intervals for multiple variants,
@@ -592,9 +593,10 @@ def sampling_parameter_cis_variants(
         Line2D([0], [0], color=variant_colors[i], lw=2, label=variants[i].title())
         for i in range(len(variants))
     ]
-    ax.legend(
-        handles = ci_patches + variant_lines,
-        bbox_to_anchor=(1,1),
-        frameon=False
-    )
+    if show_legend:
+        ax.legend(
+            handles = ci_patches + variant_lines,
+            bbox_to_anchor=(1,1),
+            frameon=False
+        )
     return ax
