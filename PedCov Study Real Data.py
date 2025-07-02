@@ -406,7 +406,7 @@ ax = sampling_parameter_cis_variants(
         variant: real_data_results[variant] for variant in variants
     },
     variants=variants,
-    param_names=list(param_names.keys()),
+    param_dict=param_names,
     alpha=[99, 95, 80],
     size=(7, 3),
     key='posterior_samples'
@@ -419,7 +419,7 @@ ax = sampling_parameter_cis_variants(
         variant: real_data_results[variant] for variant in variants
     },
     variants=variants,
-    param_names=list(param_names.keys()),
+    param_dict=param_names,
     alpha=[99, 95, 80],
     size=(7, 3),
     key='stan_posterior_samples'

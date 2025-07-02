@@ -494,7 +494,7 @@ def sampling_parameter_cis(
 def sampling_parameter_cis_variants(
     results: dict[str, dict],
     variants: list[str],
-    param_names: list[str] = None,
+    param_dict: dict[str, str] = None,
     alpha: list[int] = None,
     step: float = 0.05,
     show_median: bool = True,
@@ -536,7 +536,7 @@ def sampling_parameter_cis_variants(
     for vi, variant in enumerate(variants):
         samples = np.stack([
             results[variant][key][p][0, :, 0]
-            for p in param_names
+            for p in param_dict.keys()
         ], axis=-1)
 
         for npar in range(n_pars):
@@ -576,8 +576,8 @@ def sampling_parameter_cis_variants(
     # styling
     ax.axvline(1, color='grey', linestyle='--')
     ax.set_yticks(range(n_pars))
-    if param_names is not None:
-        ax.set_yticklabels(param_names)
+    if param_dict is not None:
+        ax.set_yticklabels(param_dict.values())
     ax.set_xlabel("Parameter value")
     ax.set_ylabel("Parameter")
     if title:
