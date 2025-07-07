@@ -507,7 +507,7 @@ def sampling_parameter_cis_variants(
     """
     Plot MCMC-based parameter credibility intervals for multiple variants,
     using colored boxes per variant (no grey on-plot), but grey patches
-    in the legend for CR levels.
+    in the legend for CI levels.
     """
     if alpha is None:
         alpha = [95]
@@ -586,7 +586,7 @@ def sampling_parameter_cis_variants(
 
     # legend: grey patches for CI levels + colored lines for variants
     ci_patches = [
-        Patch(facecolor=str(0.8 - i*0.2), edgecolor='none', label=f"{level}% CR")
+        Patch(facecolor=str(0.8 - i*0.2), edgecolor='none', label=f"{level}% CI")
         for i, level in enumerate(alpha_sorted)
     ]
     variant_lines = [
