@@ -39,6 +39,8 @@ data {
   array[N] real<lower=0>               obs_time;     // reported symptom/test day
   array[N] int<lower=0,upper=2>        age_cat;      // 0=infant,1=child,2=adult
   array[N] int<lower=0,upper=1>        is_protected; // unused here, but available
+  array[N] int                         last_test_neg;     // date of last negative test (-1000 if no information)
+  array[N] int<lower=0>                first_test_pos;     // first positive test for symptomatic, and the LAST positive test for asymptomatic
 
   // Helper indices
   int<lower=0>                               n_infected;
@@ -53,21 +55,67 @@ data {
   // Incubation‐period priors
   real<lower=0>               inc_shape_symp;
   real<lower=0>               inc_rate_symp;
-  real<lower=0>               inc_shape_asymp;
-  real<lower=0>               inc_rate_asymp;
-  //real<lower=0>               inc_min_asymp;
-  //real<lower=0>               inc_max_asymp;
+  real<lower=0>               penalty_strength;  // strength of penalty for latent infection time outside bounds
 
   // Generation‐time kernel parameters
   real<lower=0>               kt_shape;
   real<lower=0>               kt_rate;
+
+  // fixed params
+  real<lower=0>               mu_protect_acq;
+  real<lower=0>               mu_protect_transm;
+}
+
+
+transformed data {
+  vector<lower=0>[N] u_min;  // minimum latent infection time
+  vector<lower=0>[N] u_max;  // maximum latent infection time
+
+  for (i in 1:N) {
+    if (infect_status[i] == 1) {
+      // Infected: infection must occur between 1 day before last neg test and 1 day before first pos test
+      u_min[i] = obs_time[i] - (first_test_pos[i] - 1);
+      u_max[i] = obs_time[i] - (last_test_neg[i] - 1);
+    } else if (infect_status[i] == 2) {
+      // Unconfirmed infection: obs_time is first positive test date
+      u_min[i] = 0;
+
+      if (first_test_pos[i] > 0 && (first_test_pos[i] - obs_time[i]) > 15) {
+        // No constraint - time span too large to be reliable
+        u_max[i] = positive_infinity();
+      } else {
+
+          u_max[i] = 15; // maximum incubation period
+          if (last_test_neg[i] > 0) {
+              // If last negative test was at day X, infection was before day X
+              u_max[i] = fmin(u_max[i], obs_time[i] - (last_test_neg[i] - 1));
+          }
+
+          if (first_test_pos[i] > 0) {
+              // If first positive test was at day Y, infection was before day Y
+              u_min[i] = fmax(u_min[i], obs_time[i] - (first_test_pos[i] - 1));
+          }
+      }
+    } else {
+      // Susceptible or uninfected: bounds unused
+      u_min[i] = 0;
+      u_max[i] = 0;
+    }
+
+    // Ensure bounds are valid
+    if (u_min[i] < 0) u_min[i] = 0;
+    if (u_max[i] < u_min[i]) {  // no valid range
+      u_max[i] = obs_time[i];
+      u_min[i] = 0;
+    }
+  }
 }
 
 parameters {
   // 1) Household transmission parameters
-  // real<lower=0,upper=0.1>       alpha;      // baseline hazard
-  real<lower=0>       beta;       // transmissibility coefficient
-  real                delta;      // exponent on household size
+  real<lower=0,upper=0.1>       alpha;      // baseline hazard
+  real<lower=0>                 beta;       // transmissibility coefficient
+  real                          delta;      // exponent on household size
 
   // 2) Log-multipliers for infectivity by (status × age)
   real<lower=0>                mu_inf_SI;  // symptomatic infant/adult
@@ -85,17 +133,10 @@ parameters {
   // real<lower=0>                mu_protect_transm;
 
   // 5) Latent-time offsets for each infected
-  // vector<lower=0,upper=1>[N]   D;  // Uniform(0,1): symptom/test date offset
   vector<lower=0,upper=30>[N]           U;  // Gamma: incubation periods
 }
 
 transformed parameters {
-  real<lower=0> alpha    = 0.001;
-  //real<lower=0> beta     = 0.3;
-  //real<lower=0> delta    = 0.1;
-  real<lower=0> mu_protect_acq    = 0.8;
-  real<lower=0> mu_protect_transm = 1.0;
-
   vector<lower=0>[N] mu_inf_array;             // individual infectivity
   vector<lower=0>[N] mu_susc_array;            // individual susceptibility
   vector[N]          tau;                      // latent infection times
@@ -132,7 +173,6 @@ transformed parameters {
     if (infect_status[i] == 1)
       tau[i] = obs_time[i] - U[i];
     else if (infect_status[i] == 2)
-      //tau[i] = obs_time[i] - (U[i] + inc_min_asymp);  // shift such that lower bound is 0
       tau[i] = obs_time[i] - U[i];
     else
       tau[i] = 0;  // unused for susceptibles
@@ -154,8 +194,7 @@ transformed parameters {
 
 model {
   // 1) Priors on transmission parameters
-  // alpha                 ~ gamma(1.0, 20);
-  // alpha                 ~ uniform(0.0, 0.1);
+  alpha                 ~ uniform(0.0, 0.1);
   beta                  ~ gamma(2.0, 2.0);
   delta                 ~ normal(0.0, 1.0);
 
@@ -172,9 +211,6 @@ model {
   // mu_protect_acq        ~ lognormal(0, 0.7);
   // mu_protect_transm     ~ lognormal(0, 0.7);
 
-  // 3) Priors for latent-time offsets
-  // D                  ~ uniform(0, 1);
-
   // 4) Transmission‐hazard likelihood
   // Process infected individuals
   for (inf_idx in 1:n_infected) {
@@ -183,11 +219,20 @@ model {
     real first_tau = tau[hh_start_idx[household]+first_infected_idx[household]];
 
     // Priors for latent-time offsets
+    //if (infect_status[i] == 1)
+     // U[i] ~ gamma(inc_shape_symp, inc_rate_symp);
+    //else // if (infect_status[i] == 2)
+      // U[i] ~ gamma(inc_shape_asymp, inc_rate_asymp);
+    // Gamma prior on U
     if (infect_status[i] == 1)
-      U[i] ~ gamma(inc_shape_symp, inc_rate_symp);
-    else // if (infect_status[i] == 2)
-      U[i] ~ gamma(inc_shape_asymp, inc_rate_asymp);
-      // U[i] ~ uniform(0, inc_max_asymp-inc_min_asymp);  // shift such that lower bound is 0
+        target += gamma_lpdf(U[i] | inc_shape_symp, inc_rate_symp);
+
+    // Soft penalty for being outside of bounds
+    if (U[i] < u_min[i]) {
+      target += -penalty_strength * square(U[i] - u_min[i]);
+    } else if (U[i] > u_max[i]) {
+      target += -penalty_strength * square(U[i] - u_max[i]);
+    }
 
     // — Event at τ_i for infected i
     real sum_haz = 0;

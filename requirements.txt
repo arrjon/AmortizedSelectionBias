@@ -1,5 +1,5 @@
 numpy~=1.26.4
-git+https://github.com/bayesflow-org/bayesflow.git@529-bug-serialization-of-the-broadcast-transformation
+bayesflow~=2.0.5
 pandas~=2.2.2
 matplotlib~=3.9.0
 scipy~=1.13.0
@@ -9,3 +9,4 @@ jax~=0.6.0
 keras~=3.10.0
 joblib~=1.4.2
 cmdstanpy~=1.2.5
+rpy2~=3.6.1

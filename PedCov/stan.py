@@ -3,11 +3,11 @@ import numpy as np
 from cmdstanpy import CmdStanModel
 
 
-stan_model = CmdStanModel(stan_file='PedCov/pedcov_stan_model.stan')  # for alpha variant
-stan_model_omicron = CmdStanModel(stan_file='PedCov/pedcov_stan_model_omicron.stan')  # for omicron variant
-simple_stan_model = CmdStanModel(stan_file='PedCov/pedcov_stan_model_simple.stan')  # only alpha variant
+stan_model = CmdStanModel(stan_file='PedCov/pedcov_stan_model.stan')
+stan_model_fixed_alpha = CmdStanModel(stan_file='PedCov/pedcov_stan_model_fixed_alpha.stan')
 
-def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=False, use_simple_model=False):
+def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=False,
+                       alpha=None, mu_protect_acq=1, mu_protect_transm=1):
     """
     Prepare PedCov and fit the household infection model
 
@@ -16,16 +16,17 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
     max_t: maximum follow-up time
     chains: number of MCMC chains
     show_progress: whether to show progress during sampling
-    use_simple_model: if True, use a simplified Stan model for testing (without latent incubation variables)
+    alpha: baseline transmission rate (fixed model parameter)
+    mu_protect_acq: protection against acquisition (fixed model parameter)
+    mu_protect_transm: protection against transmission (fixed model parameter)
     """
     # Ensure necessary columns are present
-    required_columns = ['id_hh', 'id_patient', 'end_followup', 'date_sympt', 'age', 'infect_status', 'protected']
+    required_columns = ['id_hh', 'id_patient', 'end_followup', 'date_sympt',
+                        'age', 'infect_status', 'protected', 'first_test_pos', 'last_test_neg']
     if not all(column in obs_df.columns for column in required_columns):
         raise ValueError(f"DataFrame is missing one or more required columns: {required_columns}")
     if not simulator.variant in ['alpha', 'omicron']:
         raise ValueError(f"Simulator variant '{simulator.variant}' is not supported. Supported variants are 'alpha' and 'omicron'.")
-    if simulator.variant == 'omicron' and use_simple_model:
-        raise ValueError("The simple model is not compatible with the Omicron variant. Please use the full model.")
 
     # Sort by household and patient ID for consistent indexing
     df_sorted = obs_df.sort_values(['id_hh', 'id_patient']).reset_index(drop=True)
@@ -45,6 +46,8 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
     age_cat = df_sorted['age'].astype(int).tolist()
     infect_status = df_sorted['infect_status'].astype(int).tolist()
     protected = df_sorted['protected'].astype(int).tolist()
+    last_test_neg = df_sorted['last_test_neg'].astype(int).tolist()
+    first_test_pos = df_sorted['first_test_pos'].astype(int).tolist()
 
     # Get infected and susceptible indices (1-indexed for Stan)
     infected_mask = df_sorted['infect_status'] > 0
@@ -104,6 +107,8 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
         'obs_time': obs_time,
         'age_cat': age_cat,
         'is_protected': protected,
+        'last_test_neg': last_test_neg,
+        'first_test_pos': first_test_pos,
 
         'n_infected': n_infected,
         'n_susceptible': n_susceptible,
@@ -118,11 +123,14 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
 
         'inc_shape_symp': simulator.shapeIncub,  # incubation distribution
         'inc_rate_symp': 1/simulator.scaleIncub,
-        #'inc_min_asymp': simulator.minIncub,
-        #'inc_max_asymp': simulator.maxIncub
-        'inc_shape_asymp': simulator.shapeIncubAsymp,
-        'inc_rate_asymp': 1 / simulator.scaleIncubAsymp,
+        'penalty_strength': 100,  # penalty strength for the latent incubation variables
+
+        # fixed parameters
+        'mu_protect_acq': mu_protect_acq,
+        'mu_protect_transm': mu_protect_transm,
     }
+    if alpha is not None:
+        stan_data['alpha'] = alpha
 
     if show_progress:
         # Print PedCov summary for debugging
@@ -133,12 +141,10 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
         print(f"  Protected individuals: {sum(protected)}")
 
     # Fit the model to the PedCov
-    if use_simple_model:
-        stan_model_to_use = simple_stan_model  # without fitting latent incubation variables
-    elif simulator.variant == 'omicron':
-        stan_model_to_use = stan_model_omicron
-    else:
+    if alpha is None:
         stan_model_to_use = stan_model
+    else:
+        stan_model_to_use = stan_model_fixed_alpha
     fit = stan_model_to_use.sample(
         data=stan_data,
         show_progress=show_progress,

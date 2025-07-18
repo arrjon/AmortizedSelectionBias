@@ -79,7 +79,8 @@ def validate_input_data(df: pd.DataFrame) -> None:
     Raises:
         ValueError: If required columns are missing or PedCov integrity issues are found
     """
-    required_columns = {'id_hh', 'date_sympt', 'infect_status', 'age_exact', 'protected', 'hh_size', 'end_followup'}
+    required_columns = {'id_hh', 'date_sympt', 'infect_status', 'age_exact',
+                        'protected', 'hh_size', 'end_followup', 'first_test_pos', 'last_test_neg'}
     missing_columns = required_columns - set(df.columns)
     if missing_columns:
         raise ValueError(f"Missing required columns: {missing_columns}")
@@ -108,7 +109,7 @@ def encode_row(row: pd.Series, encoding_dict: Dict) -> List[float]:
         List of encoded values
     """
     try:
-        encoded = [row['date_sympt_norm']]
+        encoded = []
         for column, encoding in encoding_dict.items():
             encoded.extend(encoding[row[column]])
         return encoded
@@ -135,14 +136,20 @@ def normalize_dates_and_age(
     df = df.copy()
 
     # Normalize symptomatic dates
-    mask_infected = df['date_sympt'] != config.NOT_INFECTED_DATE
-    df.loc[mask_infected, 'date_sympt_norm'] = df.loc[mask_infected, 'date_sympt'] / config.DATE_MAX
+    nan_mask = df['date_sympt'] != config.NOT_INFECTED_DATE
+    df.loc[nan_mask, 'date_sympt_norm'] = df.loc[nan_mask, 'date_sympt'] / config.DATE_MAX
+    df.loc[~nan_mask, 'date_sympt_norm'] = config.NOT_INFECTED_DATE  # later replaced with -1
+
+    nan_mask = df['first_test_pos'] != config.NOT_INFECTED_DATE
+    df.loc[nan_mask, 'first_test_pos_norm'] = df.loc[nan_mask, 'first_test_pos'] / config.DATE_MAX
+    df.loc[~nan_mask, 'first_test_pos_norm'] = config.NOT_INFECTED_DATE  # later replaced with -1
+
+    nan_mask = df['last_test_neg'] != -config.NOT_INFECTED_DATE  # negative value
+    df.loc[nan_mask, 'last_test_neg_norm'] = df.loc[nan_mask, 'last_test_neg'] / config.DATE_MAX
+    df.loc[~nan_mask, 'last_test_neg_norm'] = config.NOT_INFECTED_DATE  # later replaced with -1
 
     # Normalize end followup dates
     df['end_followup_norm'] = df['end_followup'] / config.DATE_MAX
-
-    # Non-infected cases
-    df.loc[~mask_infected, 'date_sympt_norm'] = config.NOT_INFECTED_DATE  # later replaced with -1
 
     # Normalize age
     df['age_exact_norm'] = df['age_exact'] / config.AGE_MAX
@@ -172,9 +179,11 @@ def process_household(
 
         # Construct household array without follow-up
         household = np.concatenate((
-            encoded_household[:, :5],  # measurement time, infection status, age group
+            df_hh['date_sympt_norm'].values[:, np.newaxis],
+            df_hh['last_test_neg_norm'].values[:, np.newaxis],
+            df_hh['first_test_pos_norm'].values[:, np.newaxis],
+            encoded_household,  # infection status, age group, protection status
             df_hh['age_exact_norm'].values[:, np.newaxis],
-            encoded_household[:, 5:],  # protection status
             df_hh['hh_size'].values[:, np.newaxis],  # household size
             df_hh['end_followup_norm'].values[:, np.newaxis],
         ), axis=1)
@@ -183,9 +192,6 @@ def process_household(
         order = np.argsort(household[:, 0])
         household = household[order]
 
-        # replace not infected date with -1
-        household[household[:, 0] == config.NOT_INFECTED_DATE, 0] = -1
-
         # transpose to have shape (n_features, n_members)
         household = household.T
 
@@ -193,6 +199,8 @@ def process_household(
         # Construct main household PedCov
         household = np.stack((
             df_hh['date_sympt_norm'].values,
+            df_hh['last_test_neg_norm'].values,
+            df_hh['first_test_pos_norm'].values,
             df_hh['infect_status'].values,
             df_hh['age'].values,  # age_group
             df_hh['age_exact_norm'].values,
@@ -204,6 +212,9 @@ def process_household(
         # Sort main PedCov by date
         order = np.argsort(household[0])
         household = household[:, order]
+
+    # replace 1000 with -1
+    household[household == config.NOT_INFECTED_DATE] = -1
 
     # Pad if necessary
     if household.shape[1] < minimal_length:

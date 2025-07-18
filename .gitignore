@@ -3,8 +3,7 @@ log
 /PedCov/data/
 .DS_Store
 **_stan_model
-**_stan_model_simple
-**_stan_model_omicron
+**_stan_model_fixed_alpha
 /KoCo
 **.pickle
 .idea
