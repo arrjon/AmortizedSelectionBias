@@ -1,5 +1,5 @@
 /*
-  pedcov_coxph.stan
+  pedcov_stan_model.stan
   Household transmission model with latent infection augmentation.
 
   We augment, per household h:
@@ -62,8 +62,8 @@ data {
   real<lower=0>               kt_rate;
 
   // fixed params
-  real<lower=0>               mu_protect_acq;
-  real<lower=0>               mu_protect_transm;
+  // real<lower=0>               mu_protect_acq;
+  // real<lower=0>               mu_protect_transm;
 }
 
 
@@ -129,8 +129,8 @@ parameters {
   real<lower=0>                mu_susc_C;  // child
 
   // 4) Protection multiplier
-  // real<lower=0>                mu_protect_acq;
-  // real<lower=0>                mu_protect_transm;
+  real<lower=0>                mu_protect_acq;
+  real<lower=0>                mu_protect_transm;
 
   // 5) Latent-time offsets for each infected
   vector<lower=0,upper=30>[N]           U;  // Gamma: incubation periods
@@ -208,8 +208,8 @@ model {
   mu_susc_C             ~ lognormal(0, 0.7);
   mu_susc_I             ~ lognormal(0, 0.7);
 
-  // mu_protect_acq        ~ lognormal(0, 0.7);
-  // mu_protect_transm     ~ lognormal(0, 0.7);
+  mu_protect_acq        ~ lognormal(0, 0.7);
+  mu_protect_transm     ~ lognormal(0, 0.7);
 
   // 4) Transmission‐hazard likelihood
   // Process infected individuals

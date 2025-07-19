@@ -32,28 +32,18 @@ def dict_to_named_r_list(d):
 class OutbreakSimulator:
     def __init__(self, variant='alpha'):
         self.variant   = variant
-        #self.n_repeat  = n_repeat
         self.minimal_length = 8  # minimal length of the household PedCov -> time steps
-        #self.simple_simulation = simple_simulation  # whether to use incubation delay or not
 
         if variant == "alpha":
             self.p_asympto = 0.4
             mean_incub, sd_incub = 4.42, 2.3
-            #self.minIncub, self.maxIncub = 2, 7
-            #self.shapeIncubAsymp = 4.0  # note: similar to uniform distribution before
-            #self.scaleIncubAsymp = 1.286
 
             self.shape_generation_time, self.scale_generation_time = 2, 1/0.44
-            #self.delayDist = [6.9368753, 0.7376425, -3.0000000, 5.6516107, 0.9719026, 2.0000000]
         elif variant == "omicron":
             self.p_asympto = 0.3
             mean_incub, sd_incub = 3.09, 1.64
-            #self.minIncub, self.maxIncub = 1, 5
-            #self.shapeIncubAsymp = 7.0  # note: similar to uniform distribution before
-            #self.scaleIncubAsymp = 2./3
 
             self.shape_generation_time, self.scale_generation_time = 3.531, 1/1.098
-            #self.delayDist = [8.4310842, 0.9508425, -4.0000000, 3.8209443, 1.2737556, 1.0000000]
         else:
             raise ValueError(f"Unknown variant: {variant}")
         self.shapeIncub = mean_incub**2 / sd_incub**2
@@ -101,11 +91,18 @@ class OutbreakSimulator:
                 sim_norm = normalize_household_data(df, minimal_length=self.minimal_length)
                 sim_norm_list.append(sim_norm)
 
-            return {
-                'pedcov': dict(sim_data_df=df_list[0], sim_data=sim_norm_list[0]),
-                'adultcov': dict(sim_data_df=df_list[1], sim_data=sim_norm_list[1]),
-                'random': dict(sim_data_df=df_list[2], sim_data=sim_norm_list[2]),
-            }
+            if return_df:
+                return {
+                    'pedcov': dict(sim_data_df=df_list[0], sim_data=sim_norm_list[0]),
+                    'adultcov': dict(sim_data_df=df_list[1], sim_data=sim_norm_list[1]),
+                    'random': dict(sim_data_df=df_list[2], sim_data=sim_norm_list[2]),
+                }
+            else:
+                return {
+                    'pedcov': dict(sim_data=sim_norm_list[0]),
+                    'adultcov': dict(sim_data=sim_norm_list[1]),
+                    'random': dict(sim_data=sim_norm_list[2]),
+                }
 
         # normalize the household PedCov for input to the neural network
         sim_norm = normalize_household_data(df_sim, minimal_length=self.minimal_length)

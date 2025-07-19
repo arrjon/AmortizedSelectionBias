@@ -2,7 +2,7 @@ library(dplyr)
 library(stringr)
 library(actuar)
 
-data_simulation <- function(variant=NULL, par=NULL) {
+data_simulation <- function(variant=NULL, par=NULL, n_repeats=50) {
   
   d <- read.table(paste0("PedCov/pedcovid_data_structure_", variant, ".txt"), header=T) %>%
     group_by(id_hh) %>%
@@ -10,7 +10,7 @@ data_simulation <- function(variant=NULL, par=NULL) {
     ungroup() %>%
     select(-c("conf","npi_stop","duration_npi"))
   
-  d <- d[rep(1:nrow(d),5),] # duplicate database
+  d <- d[rep(1:nrow(d),n_repeats),] # duplicate database
   d <- group_by(d, id_hh, id_patient) %>%
     mutate(id_rep = row_number(), .after="id_hh") %>%
     ungroup() %>%
@@ -23,7 +23,7 @@ data_simulation <- function(variant=NULL, par=NULL) {
   
   delayDist <- readRDS(paste0("PedCov/Delays_final_",variant,".rds"))
   
-  pb <- txtProgressBar(min=1, max=length(unique(d$id_hh)), style=3) # Progression bar to be drawn on console
+  # pb <- txtProgressBar(min=1, max=length(unique(d$id_hh)), style=3) # Progression bar to be drawn on console
   # message(paste("Simulating", variant, "households..."))
   
   n_asympto_non_detect <- 0
@@ -52,7 +52,7 @@ data_simulation <- function(variant=NULL, par=NULL) {
     
     new_data_hh_list[[which(unique(d$id_hh)==hh)]] <- new_data_hh
   }
-  close(pb) # Close progress bar
+  # close(pb) # Close progress bar
   
   new_data <- data.table::rbindlist(new_data_hh_list, fill=TRUE) # add the hh to the dataframe
   # message("-------DIAGNOSTICS-------")

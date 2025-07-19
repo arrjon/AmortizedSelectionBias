@@ -1,6 +1,6 @@
 /*
-  pedcov_coxph.stan
-  Household transmission model with latent infection augmentation.
+  pedcov_stan_model_fixed_alpha.stan
+  Household transmission model with latent infection augmentation. The baseline hazard is fixed.
 
   We augment, per household h:
     D_h ~ Uniform(date_sympt_h, date_sympt_h + 1)      // continuous symptom/test date of index case
@@ -63,8 +63,8 @@ data {
 
   // fixed params
   real<lower=0,upper=0.1>     alpha;  // baseline hazard
-  real<lower=0>               mu_protect_acq;
-  real<lower=0>               mu_protect_transm;
+  // real<lower=0>               mu_protect_acq;
+  // real<lower=0>               mu_protect_transm;
 }
 
 
@@ -130,8 +130,8 @@ parameters {
   real<lower=0>                mu_susc_C;  // child
 
   // 4) Protection multiplier
-  // real<lower=0>                mu_protect_acq;
-  // real<lower=0>                mu_protect_transm;
+  real<lower=0>                mu_protect_acq;
+  real<lower=0>                mu_protect_transm;
 
   // 5) Latent-time offsets for each infected
   vector<lower=0,upper=30>[N]           U;  // Gamma: incubation periods
@@ -209,8 +209,8 @@ model {
   mu_susc_C             ~ lognormal(0, 0.7);
   mu_susc_I             ~ lognormal(0, 0.7);
 
-  // mu_protect_acq        ~ lognormal(0, 0.7);
-  // mu_protect_transm     ~ lognormal(0, 0.7);
+  mu_protect_acq        ~ lognormal(0, 0.7);
+  mu_protect_transm     ~ lognormal(0, 0.7);
 
   // 4) Transmission‐hazard likelihood
   // Process infected individuals
