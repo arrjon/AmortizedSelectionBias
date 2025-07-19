@@ -6,8 +6,7 @@ from cmdstanpy import CmdStanModel
 stan_model = CmdStanModel(stan_file='PedCov/pedcov_stan_model.stan')
 stan_model_fixed_alpha = CmdStanModel(stan_file='PedCov/pedcov_stan_model_fixed_alpha.stan')
 
-def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=False,
-                       alpha=None, mu_protect_acq=1, mu_protect_transm=1):
+def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=False, alpha=None):
     """
     Prepare PedCov and fit the household infection model
 
@@ -17,8 +16,6 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
     chains: number of MCMC chains
     show_progress: whether to show progress during sampling
     alpha: baseline transmission rate (fixed model parameter)
-    mu_protect_acq: protection against acquisition (fixed model parameter)
-    mu_protect_transm: protection against transmission (fixed model parameter)
     """
     # Ensure necessary columns are present
     required_columns = ['id_hh', 'id_patient', 'end_followup', 'date_sympt',
@@ -126,8 +123,8 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
         'penalty_strength': 100,  # penalty strength for the latent incubation variables
 
         # fixed parameters
-        'mu_protect_acq': mu_protect_acq,
-        'mu_protect_transm': mu_protect_transm,
+        #'mu_protect_acq': mu_protect_acq,
+        #'mu_protect_transm': mu_protect_transm,
     }
     if alpha is not None:
         stan_data['alpha'] = alpha
