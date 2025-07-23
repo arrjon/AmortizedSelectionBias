@@ -6,7 +6,8 @@ from cmdstanpy import CmdStanModel
 stan_model = CmdStanModel(stan_file='PedCov/pedcov_stan_model.stan')
 stan_model_fixed_alpha = CmdStanModel(stan_file='PedCov/pedcov_stan_model_fixed_alpha.stan')
 
-def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=False, alpha=None):
+def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=False, alpha=None,
+                       iter_sampling=10000):
     """
     Prepare PedCov and fit the household infection model
 
@@ -16,6 +17,7 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
     chains: number of MCMC chains
     show_progress: whether to show progress during sampling
     alpha: baseline transmission rate (fixed model parameter)
+    iter_sampling: number of sampling iterations (default is 10000)
     """
     # Ensure necessary columns are present
     required_columns = ['id_hh', 'id_patient', 'end_followup', 'date_sympt',
@@ -146,7 +148,7 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
         data=stan_data,
         show_progress=show_progress,
         chains=chains,
-        iter_sampling=10000,  # default is 1000
+        iter_sampling=iter_sampling
     )
 
     # Extract posterior samples

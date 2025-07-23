@@ -225,7 +225,7 @@ def process_household(
 
 def normalize_household_data(
         df: pd.DataFrame,
-        minimal_length: int,
+        minimal_length: int = 8,
         n_households: int = 128,
         config: ProcessingConfig = ProcessingConfig()
 ) -> Union[np.ndarray, List[np.ndarray]]:
@@ -611,3 +611,56 @@ def sampling_parameter_cis_variants(
             frameon=False
         )
     return ax
+
+
+def find_best_model_by_rank_sum(list1, list2):
+    """
+    Find best model using sum of rankings approach
+    list1, list2: lists of scores where index represents the model
+    Returns: index of the best model
+    """
+    n = len(list1)
+
+    # Create rankings (rank 0 = best, rank n-1 = worst)
+    # Sort indices by their values in descending order
+    rank1 = [0] * n
+    rank2 = [0] * n
+
+    # Get sorted indices for list1 (best to worst)
+    sorted_indices1 = sorted(range(n), key=lambda i: list1[i])
+    for rank, idx in enumerate(sorted_indices1):
+        rank1[idx] = rank
+
+    # Get sorted indices for list2 (best to worst)
+    sorted_indices2 = sorted(range(n), key=lambda i: list2[i])
+    for rank, idx in enumerate(sorted_indices2):
+        rank2[idx] = rank
+
+    # Sum rankings for each model
+    combined_ranks = [rank1[i] + rank2[i] for i in range(n)]
+
+    # Best model has lowest combined rank
+    return combined_ranks.index(min(combined_ranks))
+
+
+def find_best_model_by_normalized_avg(list1, list2):
+    """
+    Find best model using normalized score average
+    list1, list2: lists of scores where index represents the model
+    Returns: index of the best model with the lowest average normalized score
+    """
+    # Normalize scores to 0-1 range
+    def normalize(scores):
+        min_val, max_val = min(scores), max(scores)
+        if max_val == min_val:  # Handle edge case where all scores are equal
+            return [0.5] * len(scores)
+        return [(score - min_val) / (max_val - min_val) for score in scores]
+
+    norm1 = normalize(list1)
+    norm2 = normalize(list2)
+
+    # Calculate average normalized scores
+    avg_scores = [(norm1[i] + norm2[i]) / 2 for i in range(len(list1))]
+
+    # Return index of highest average score
+    return avg_scores.index(min(avg_scores))

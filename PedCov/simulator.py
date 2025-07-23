@@ -32,7 +32,6 @@ def dict_to_named_r_list(d):
 class OutbreakSimulator:
     def __init__(self, variant='alpha'):
         self.variant   = variant
-        self.minimal_length = 8  # minimal length of the household PedCov -> time steps
 
         if variant == "alpha":
             self.p_asympto = 0.4
@@ -88,7 +87,7 @@ class OutbreakSimulator:
             ]
             sim_norm_list = []
             for df in df_list:
-                sim_norm = normalize_household_data(df, minimal_length=self.minimal_length)
+                sim_norm = normalize_household_data(df)
                 sim_norm_list.append(sim_norm)
 
             if return_df:
@@ -105,7 +104,7 @@ class OutbreakSimulator:
                 }
 
         # normalize the household PedCov for input to the neural network
-        sim_norm = normalize_household_data(df_sim, minimal_length=self.minimal_length)
+        sim_norm = normalize_household_data(df_sim)
         if return_df:
             return dict(sim_data_df=df_sim, sim_data=sim_norm)
         else:
