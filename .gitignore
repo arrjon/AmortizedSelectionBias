@@ -7,3 +7,4 @@ log
 /KoCo
 **.pickle
 .idea
+/models/old
