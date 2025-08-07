@@ -6,14 +6,14 @@ data {
 
 parameters {
       real theta;                        // Treatment effect parameter
-      real<lower=0> sigma;               // Standard deviation of latent z
+      real<lower=0> sigma;               // Standard deviation of latent z (health_awareness)
       vector[N] z;                       // Latent confounder for each observation
     }
 
 model {
       // Priors
-      theta ~ uniform(0, 3);
-      sigma ~ uniform(0, 3);
+      theta ~ uniform(0, 3);  // treatment_effect
+      sigma ~ uniform(0, 3);  // health_awareness
 
       // Prior for latent z
       z ~ normal(0, sigma);
@@ -24,6 +24,9 @@ model {
 
       // Likelihood for observed Y_i
       for (i in 1:N) {
+        // Treatment model:
+        // T[i] ~ bernoulli_logit(z[i]);
+
         // Selection probability
         target += log(inv_logit(z[i]));  // p(selection|z) = 1/(1+e^(-z))
 
