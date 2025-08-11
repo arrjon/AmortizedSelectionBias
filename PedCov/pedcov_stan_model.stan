@@ -239,6 +239,7 @@ model {
     real sum_cum = 0;
 
     // Only loop over household members (precomputed ranges)
+    // tau[j_idx] < tau[i] excludes the first infected in the household
     for (j_idx in hh_start_idx[household]:hh_end_idx[household]) {
       // if (infect_status[j_idx] > 0 && tau[j_idx] < tau[i]) { -> mu_inf_array is 0 for susceptibles,
         real lag = tau[i] - tau[j_idx];
