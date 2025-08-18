@@ -8,3 +8,4 @@ log
 **.pickle
 .idea
 /models/old
+/PedCov/.Rapp.history
