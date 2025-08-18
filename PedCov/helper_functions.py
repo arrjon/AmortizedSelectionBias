@@ -449,7 +449,7 @@ def sampling_parameter_cis(
 
     # set axes and figure
     if ax is None:
-        _, ax = plt.subplots(figsize=size, tight_layout=True)
+        _, ax = plt.subplots(figsize=size, layout='constrained')
 
     # loop over parameters
     for npar in range(n_pars):
@@ -502,9 +502,10 @@ def sampling_parameter_cis(
     return ax
 
 
-def sampling_parameter_cis_variants(
+def sampling_parameter_cis_comparison(
     results: dict[str, dict],
-    variants: list[str],
+    methods: dict[str, str],
+    variant: str,
     param_dict: dict[str, str] = None,
     alpha: list[int] = None,
     step: float = 0.05,
@@ -512,46 +513,44 @@ def sampling_parameter_cis_variants(
     title: str = None,
     size: tuple[float, float] = None,
     ax: matplotlib.axes.Axes = None,
-    key: str = 'posterior_samples',
     show_legend: bool = False
 ) -> matplotlib.axes.Axes:
     """
-    Plot MCMC-based parameter credibility intervals for multiple variants,
-    using colored boxes per variant (no grey on-plot), but grey patches
-    in the legend for CI levels.
+    Plot MCMC-based parameter credibility intervals for multiple methods,
+    using colored boxes per method.
     """
     if alpha is None:
         alpha = [95]
     alpha_sorted = sorted(alpha, reverse=True)
     n_levels = len(alpha_sorted)
 
-    # pick a distinct color for each variant
+    # pick a distinct color for each method
     cmap = plt.get_cmap("tab10")
-    variant_colors = [cmap(i) for i in range(len(variants))]
+    method_colors = [cmap(i) for i in range(len(methods))]
 
     # number of parameters
-    sample0 = results[variants[0]][key]
+    sample0 = results[list(methods.keys())[0]]
     n_pars = len(sample0)
 
-    # vertical offsets so that each variant is centered on its own y
-    height_per_variant = step * (n_levels * 2 + 1)
-    variant_offsets = [
-        (i - (len(variants)-1)/2) * height_per_variant
-        for i in range(len(variants))
+    # vertical offsets so that each method is centered on its own y
+    height_per_method = step * (n_levels * 2 + 1)
+    method_offsets = [
+        (i - (len(methods)-1)/2) * height_per_method
+        for i in range(len(methods))
     ]
 
     if ax is None:
-        _, ax = plt.subplots(figsize=size, tight_layout=True)
+        _, ax = plt.subplots(figsize=size, layout='constrained')
 
-    # draw each variant
-    for vi, variant in enumerate(variants):
+    # draw each method
+    for vi, method in enumerate(methods.keys()):
         samples = np.stack([
-            results[variant][key][p][0, :, 0]
+            results[method][p][0, :, 0]
             for p in param_dict.keys()
         ], axis=-1)
 
         for npar in range(n_pars):
-            base_y = npar + variant_offsets[vi]
+            base_y = npar + method_offsets[vi]
             _step = step
 
             for lvl_i, level in enumerate(alpha_sorted):
@@ -568,8 +567,8 @@ def sampling_parameter_cis_variants(
                 fill_alpha = 0.3 + 0.5 * (lvl_i / (n_levels-1) if n_levels>1 else 1)
                 ax.fill(
                     xs, ys,
-                    facecolor=variant_colors[vi],
-                    edgecolor=variant_colors[vi],
+                    facecolor=method_colors[vi],
+                    edgecolor=method_colors[vi],
                     alpha=fill_alpha,
                 )
                 _step += step
@@ -580,8 +579,7 @@ def sampling_parameter_cis_variants(
                 ax.plot(
                     [med, med],
                     [base_y - step, base_y + step],
-                    color='black', #variant_colors[vi],
-                    #linewidth=1
+                    color='black'
                 )
 
     # styling
@@ -589,20 +587,20 @@ def sampling_parameter_cis_variants(
     ax.set_yticks(range(n_pars))
     if param_dict is not None:
         ax.set_yticklabels(param_dict.values())
-    ax.set_xlabel("Parameter value")
-    ax.set_ylabel("Parameter")
+    ax.set_xlabel(f"{variant.title()} parameter value")
+    ax.set_ylabel("Parameters")
     if title:
         ax.set_title(title)
     ax.invert_yaxis()
 
-    # legend: grey patches for CI levels + colored lines for variants
+    # legend: grey patches for CI levels + colored lines for methods
     ci_patches = [
         Patch(facecolor=str(0.8 - i*0.2), edgecolor='none', label=f"{level}% CI")
         for i, level in enumerate(alpha_sorted)
     ]
     variant_lines = [
-        Line2D([0], [0], color=variant_colors[i], lw=2, label=variants[i].title())
-        for i in range(len(variants))
+        Patch(color=method_colors[i], label=name)
+        for i, name in enumerate(methods.values())
     ]
     if show_legend:
         ax.legend(
