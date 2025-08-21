@@ -5,7 +5,6 @@ from typing import Dict, List, Union
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -586,7 +585,7 @@ def sampling_parameter_cis_comparison(
     ax.axvline(1, color='grey', linestyle='--')
     ax.set_yticks(range(n_pars))
     if param_dict is not None:
-        ax.set_yticklabels(param_dict.values())
+        ax.set_yticklabels(param_dict.values(), fontsize=12)
     ax.set_xlabel(f"{variant.title()} parameter value")
     ax.set_ylabel("Parameters")
     if title:
@@ -606,7 +605,8 @@ def sampling_parameter_cis_comparison(
         ax.legend(
             handles = ci_patches + variant_lines,
             bbox_to_anchor=(1,1),
-            frameon=False
+            frameon=False,
+            fontsize=12
         )
     return ax
 
