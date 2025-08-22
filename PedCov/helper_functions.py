@@ -582,7 +582,7 @@ def sampling_parameter_cis_comparison(
                 )
 
     # styling
-    ax.axvline(1, color='grey', linestyle='--')
+    ax.axvline(x=1, ymax=0.81, color='grey', linestyle='--')
     ax.set_yticks(range(n_pars))
     if param_dict is not None:
         ax.set_yticklabels(param_dict.values(), fontsize=12)
