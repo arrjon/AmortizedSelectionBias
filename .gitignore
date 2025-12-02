@@ -7,5 +7,7 @@ log
 /KoCo
 **.pickle
 .idea
-/models/old
 /PedCov/.Rapp.history
+epoch*.csv
+old binder
+models/
