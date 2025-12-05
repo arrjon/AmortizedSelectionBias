@@ -288,7 +288,7 @@ simulate_from_priors_df <- function(priors = NA,
 
   for (ep in names(priors)) {
     # Covariates sex (binary) and age (continuous)
-    df <- read.csv(paste0(ep, "_CV.csv"))
+    df <- read.csv(paste0("data/", ep, "_CV.csv"))
     sex = df$sex
     age_raw = df$age
     n.indiv = length(df$age)
