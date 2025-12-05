@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 colors = ['#4a2377', '#f55f74', '#f47a00', '#0d7d87']
 weibull_param_map = {
     '01': ('a01', 'shape01'),
@@ -252,7 +253,7 @@ def plot_hazard(baseline, prior_samples, prior_summary, posterior_samples, poste
         ncols=3
     )
 
-    fig.savefig(f'plots/binder/binder_{network_name}_hazards.png', bbox_inches='tight')
+    fig.savefig(f'plots/{network_name}_hazards.png', bbox_inches='tight')
     return fig
 
 def plot_a1(baseline, prior_samples, posterior_samples, network_name):
@@ -423,179 +424,9 @@ def plot_a1(baseline, prior_samples, posterior_samples, network_name):
     ax.set_yscale('log')
     ax.legend(loc='upper right', bbox_to_anchor=(1.42, 1.0))
 
-    fig.savefig(f'plots/binder/binder_{network_name}_a01.png', bbox_inches='tight')
+    fig.savefig(f'plots/{network_name}_a01.png', bbox_inches='tight')
     return fig
 
-def plot_a1_median(baseline, prior_samples, posterior_samples, network_name):
-    fig, ax = plt.subplots(figsize=(10, 4), layout='constrained')
-
-    # ----------------------------------------------------------------------
-    # Precompute epoch-wise time grids and lengths
-    # ----------------------------------------------------------------------
-    epoch_times_weib = {e: np.asarray(baseline[e]['idm_weib_times']) for e in epochs}
-    epoch_lengths = {e: t[-1] - t[0] for e, t in epoch_times_weib.items()}
-    max_length = max(epoch_lengths.values())
-
-    # Local time grid for hazard computation within an epoch
-    t_local = np.linspace(1e-3, max_length, 200)
-
-    # Weibull parameter keys for transition 01
-    trans = '01'
-    a_key, shape_key = weibull_param_map[trans]
-
-    # ----------------------------------------------------------------------
-    # Prior hazard band (same for all epochs, just shifted in time)
-    # ----------------------------------------------------------------------
-    prior_haz_med = prior_haz_low = prior_haz_high = None
-    if a_key in prior_samples and shape_key in prior_samples:
-        a_samp_prior = prior_samples[a_key]
-        shape_samp_prior = prior_samples[shape_key]
-
-        # Shape: (n_samples, len(t_local))
-        haz_samples_prior = weibull_hazard(
-            t_local[None, :],
-            a_samp_prior[:, None],
-            shape_samp_prior[:, None],
-        )
-
-        prior_haz_med = np.median(haz_samples_prior, axis=0)
-        prior_haz_low = np.quantile(haz_samples_prior, 0.025, axis=0)
-        prior_haz_high = np.quantile(haz_samples_prior, 0.975, axis=0)
-
-    # ----------------------------------------------------------------------
-    # Plot concatenated a01 for Naive Cox, Weibull IDM, Splines IDM
-    # and overlay prior/posterior bands per epoch
-    # ----------------------------------------------------------------------
-    t_all_weib, a01_all_weib = [], []
-    t_all_spl, a01_all_spl = [], []
-    t_all_naive, a01_all_naive = [], []
-
-    epoch_boundaries = []
-    offset = 0.0
-
-    prior_band_done = False
-    post_band_done = False
-
-    # Posterior samples (epoch-specific)
-    has_posterior = (a_key in posterior_samples
-                     and shape_key in posterior_samples)
-    if has_posterior:
-        a_samp_post_all = posterior_samples[a_key]
-        shape_samp_post_all = posterior_samples[shape_key]
-
-    # assumes params_a[0] corresponds to a01
-    a01_param_name = params_a[0]
-
-    for epoch_idx, e in enumerate(epochs):
-        # ----- concatenate model curves -----
-        t_weib = epoch_times_weib[e]
-        a01_weib = np.asarray(baseline[e]['idm_weib_01'])
-
-        t_spl = np.asarray(baseline[e]['idm_splines_times'])
-        a01_spl = np.asarray(baseline[e]['idm_splines_01'])
-
-        # shift to concatenated time
-        t_weib_shift = (t_weib - t_weib[0]) + offset
-        t_spl_shift = (t_spl - t_spl[0]) + offset
-
-        t_all_weib.append(t_weib_shift)
-        a01_all_weib.append(a01_weib)
-        t_all_spl.append(t_spl_shift)
-        a01_all_spl.append(a01_spl)
-
-        naive_val = baseline[e][a01_param_name]['naive_cox']
-        t_all_naive.append(t_weib_shift)
-        a01_all_naive.append(np.full_like(t_weib_shift, naive_val, dtype=float))
-
-        epoch_start = offset
-        epoch_len = epoch_lengths[e]
-
-        # update offset and boundaries
-        offset = t_weib_shift[-1]
-        epoch_boundaries.append(offset)
-
-        # ----- prior hazard band for this epoch (if available) -----
-        if prior_haz_med is not None:
-            mask = t_local <= epoch_len
-            t_grid_e = t_local[mask]
-            med_e = prior_haz_med[mask]
-            low_e = prior_haz_low[mask]
-            high_e = prior_haz_high[mask]
-
-            x_grid_shift = t_grid_e + epoch_start
-            ax.fill_between(
-                x_grid_shift,
-                low_e,
-                high_e,
-                alpha=0.15,
-                color='black',
-                label='Prior 95% interval' if not prior_band_done else None,
-            )
-            prior_band_done = True
-
-        # ----- posterior hazard band for this epoch (if available) -----
-        if has_posterior:
-            a_samp_epoch = a_samp_post_all[epoch_idx].flatten()
-            shape_samp_epoch = shape_samp_post_all[epoch_idx].flatten()
-
-            haz_samples_post = weibull_hazard(
-                t_local[None, :],
-                a_samp_epoch[:, None],
-                shape_samp_epoch[:, None],
-            )
-            post_med = np.median(haz_samples_post, axis=0)
-            post_low = np.quantile(haz_samples_post, 0.025, axis=0)
-            post_high = np.quantile(haz_samples_post, 0.975, axis=0)
-
-            mask = t_local <= epoch_len
-            t_grid_e = t_local[mask]
-            med_e = post_med[mask]
-            low_e = post_low[mask]
-            high_e = post_high[mask]
-
-            x_grid_shift = t_grid_e + epoch_start
-            ax.fill_between(
-                x_grid_shift,
-                np.median(low_e),
-                np.median(high_e),
-                alpha=0.15,
-                color=colors[3],
-                label='Posterior hazard 95% interval' if not post_band_done else None,
-            )
-            ax.plot(
-                x_grid_shift,
-                np.ones_like(med_e) * np.median(med_e),
-                linestyle='--',
-                color=colors[3],
-                label='Posterior hazard median' if not post_band_done else None,
-            )
-            post_band_done = True
-
-    # ----------------------------------------------------------------------
-    # Final concatenation and plotting of model curves
-    # ----------------------------------------------------------------------
-    t_all_weib = np.concatenate(t_all_weib)
-    a01_all_weib = np.concatenate(a01_all_weib)
-    t_all_spl = np.concatenate(t_all_spl)
-    a01_all_spl = np.concatenate(a01_all_spl)
-    t_all_naive = np.concatenate(t_all_naive)
-    a01_all_naive = np.concatenate(a01_all_naive)
-
-    ax.plot(t_all_naive, a01_all_naive, color=colors[0], label='Naive Cox a01')
-    ax.plot(t_all_weib, np.ones_like(a01_all_weib) * np.median(a01_all_weib), color=colors[1], label='Weibull Median a01')
-    ax.plot(t_all_spl, np.ones_like(a01_all_spl) * np.median(a01_all_spl), color=colors[2], label='Splines Median a01')
-
-    # epoch boundaries
-    for b in epoch_boundaries[:-1]:
-        ax.axvline(b, color='grey', alpha=0.3, linestyle=':')
-
-    ax.set_xlabel('time (concatenated over epochs)')
-    ax.set_ylabel(r'$a_{01}$ hazard')
-    ax.set_yscale('log')
-    ax.legend(loc='upper right', bbox_to_anchor=(1.42, 1.0))
-
-    fig.savefig(f'plots/binder/binder_{network_name}_a01_median.png', bbox_inches='tight')
-    return fig
 
 def plot_cumhaz(baseline, posterior_samples, df_real, network_name):
     fig, ax = plt.subplots(figsize=(8, 4), layout='constrained')
@@ -782,5 +613,5 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name):
     ax.set_ylabel(r'cumulative hazard $H_{01}(t \mid \text{age, sex})$')
     ax.legend(loc='upper right', bbox_to_anchor=(1.7, 1.0))
 
-    fig.savefig(f'plots/binder/binder_{network_name}_{a01_param_name}_cumhaz_age_sex.png', bbox_inches='tight')
+    fig.savefig(f'plots/{network_name}_{a01_param_name}_cumhaz_age_sex.png', bbox_inches='tight')
     return fig
