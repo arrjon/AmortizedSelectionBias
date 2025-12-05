@@ -1,13 +1,10 @@
-log
-/PedCov/Sophie/
-/PedCov/data/
 .DS_Store
 **_stan_model
 **_stan_model_fixed_alpha
-/KoCo
-**.pickle
 .idea
-/PedCov/.Rapp.history
-epoch*.csv
-old binder
-models/
+*/models/
+*/data/
+*/archiv/
+**.pickle
+**.pkl
+*.Rapp.history
