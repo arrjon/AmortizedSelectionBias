@@ -44,7 +44,7 @@ def weibull_hazard(t, a, shape):
     return a * shape * np.power(t, shape - 1)
 
 
-def plot_hazard(baseline, prior_samples, prior_summary, posterior_samples, posterior_summary, network_name):
+def plot_hazard(baseline, prior_samples, prior_summary, posterior_samples, posterior_summary, network_name, save_path=None):
     n_beta = len(params_beta)
     n_epochs = len(epochs)
     n_a = len(params_a)
@@ -253,10 +253,11 @@ def plot_hazard(baseline, prior_samples, prior_summary, posterior_samples, poste
         ncols=3
     )
 
-    fig.savefig(f'plots/{network_name}_hazards.png', bbox_inches='tight')
+    if save_path is not None:
+        fig.savefig(save_path /f'{network_name}_hazards.png', bbox_inches='tight')
     return fig
 
-def plot_a1(baseline, prior_samples, posterior_samples, network_name):
+def plot_a1(baseline, prior_samples, posterior_samples, network_name, save_path=None):
     fig, ax = plt.subplots(figsize=(10, 4), layout='constrained')
 
     # ----------------------------------------------------------------------
@@ -424,11 +425,12 @@ def plot_a1(baseline, prior_samples, posterior_samples, network_name):
     ax.set_yscale('log')
     ax.legend(loc='upper right', bbox_to_anchor=(1.42, 1.0))
 
-    fig.savefig(f'plots/{network_name}_a01.png', bbox_inches='tight')
+    if save_path is not None:
+        fig.savefig(save_path / f'{network_name}_a01.png', bbox_inches='tight')
     return fig
 
 
-def plot_cumhaz(baseline, posterior_samples, df_real, network_name):
+def plot_cumhaz(baseline, posterior_samples, df_real, network_name, save_path=None):
     fig, ax = plt.subplots(figsize=(8, 4), layout='constrained')
 
     age_coef_name  = 'beta01_age'
@@ -525,7 +527,7 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name):
             np.full_like(t_naive, h_naive_adj, dtype=float),
         )
 
-        # concatenate in time, but do NOT sum cumulative hazards across epochs
+        # concatenate in time
         t_weib_shift  = (t_weib  - t_weib[0])  + time_offset
         t_spl_shift   = (t_spl   - t_spl[0])   + time_offset
         t_naive_shift = (t_naive - t_naive[0]) + time_offset
@@ -613,5 +615,6 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name):
     ax.set_ylabel(r'cumulative hazard $H_{01}(t \mid \text{age, sex})$')
     ax.legend(loc='upper right', bbox_to_anchor=(1.7, 1.0))
 
-    fig.savefig(f'plots/{network_name}_{a01_param_name}_cumhaz_age_sex.png', bbox_inches='tight')
+    if save_path is not None:
+        fig.savefig(save_path / f'{network_name}_{a01_param_name}_cumhaz_age_sex.png', bbox_inches='tight')
     return fig

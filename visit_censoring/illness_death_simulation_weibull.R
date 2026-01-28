@@ -65,7 +65,7 @@ illnessdeath_weibull = function(n.indiv,
     eta12 = beta12.sex * sex[idx_ill] + beta12.age * age[idx_ill]
 
     U12 = runif(length(idx_ill))
-    t12 = (log(1 / U12) / (a12 * exp(eta12)))^(1 / shape12)
+    t12 = pmax((log(1 / U12) / (a12 * exp(eta12)))^(1 / shape12), min.time)
 
     dt[idx_ill] = illt[idx_ill] + t12
     ds[idx_ill] = 1L
@@ -122,14 +122,13 @@ truncateData <- function(data, obs_times, illt = "illt", dt = "dt", max.time = 1
       censored_data[[dt]][i] <- max.time
       death_time <- max.time
       death_status <- 0
-
-      # If illness also beyond study end, censor it
-      if (illness_time > max.time) {
-        censored_data$ills[i] <- 0
-        censored_data[[illt]][i] <- max.time
-        illness_time <- max.time
-        illness_status <- 0
-      }
+    }
+    # If illness also beyond study end, censor it
+    if (illness_time > max.time) {
+      censored_data$ills[i] <- 0
+      censored_data[[illt]][i] <- max.time
+      illness_time <- max.time
+      illness_status <- 0
     }
 
     # Apply interval censoring for illness (only observable at visits)
@@ -154,7 +153,7 @@ censor_illness <- function(data, i, visit1, visit2, illness_time, death_time,
       # Patient drops out of study after study end, not observed to be ill
       data[[illt]][i] <- visit2
     }
-    else {  # Patient is disease-free until end of study
+    else {  # Patient is disease-free until end of study and checked again in the next round
       data[[illt]][i] <- max.time
     }
   }
