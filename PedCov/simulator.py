@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PedCov.helper_functions import normalize_household_data
 
 import rpy2.robjects as ro
@@ -6,8 +8,11 @@ from rpy2.robjects import pandas2ri
 from rpy2.robjects import ListVector
 from rpy2.robjects.vectors import FloatVector
 
+
+BASE = Path(__file__).resolve().parent
+
 # Defining the R script and loading the instance in Python
-ro.r['source']('PedCov/Simulator.R')
+ro.r['source'](str(BASE / 'Simulator.R'))
 
 # Loading the function we have defined in R.
 simulate_with_r_function = ro.globalenv['simulate']

@@ -1,10 +1,13 @@
+import logging
 import numpy as np
+from pathlib import Path
 
 from cmdstanpy import CmdStanModel
 
 
-stan_model = CmdStanModel(stan_file='PedCov/pedcov_stan_model.stan')
-stan_model_fixed_alpha = CmdStanModel(stan_file='PedCov/pedcov_stan_model_fixed_alpha.stan')
+BASE = Path(__file__).resolve().parent
+stan_model = CmdStanModel(stan_file=BASE / 'stan' / 'pedcov_stan_model.stan')
+stan_model_fixed_alpha = CmdStanModel(stan_file=BASE / 'stan' / 'pedcov_stan_model_fixed_alpha.stan')
 
 def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=False, alpha=None,
                        iter_sampling=10000):
@@ -133,11 +136,11 @@ def get_stan_posterior(obs_df, param_names, simulator, chains=4, show_progress=F
 
     if show_progress:
         # Print PedCov summary for debugging
-        print(f"Data summary:")
-        print(f"  Number of households: {stan_data['H']}")
-        print(f"  Total individuals: {stan_data['N']}")
-        print(f"  Infections observed: {sum(inf > 0 for inf in infect_status)}")
-        print(f"  Protected individuals: {sum(protected)}")
+        logging.info(f"Data summary:")
+        logging.info(f"  Number of households: {stan_data['H']}")
+        logging.info(f"  Total individuals: {stan_data['N']}")
+        logging.info(f"  Infections observed: {sum(inf > 0 for inf in infect_status)}")
+        logging.info(f"  Protected individuals: {sum(protected)}")
 
     # Fit the model to the PedCov
     if alpha is None:

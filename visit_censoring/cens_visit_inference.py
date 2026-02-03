@@ -1,37 +1,45 @@
 # %%
 import os
-os.environ['KERAS_BACKEND'] = 'tensorflow'
+os.environ['KERAS_BACKEND'] = 'jax'
 
 import json
 import pickle
 from pathlib import Path
+import logging
 
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 
 import keras
 import bayesflow as bf
 
-#from visit_censoring.cens_visit_simulate import simulate_all_epochs
-from visit_censoring.cens_visit_plotting import plot_hazard, plot_a1, plot_cumhaz
+from visit_censoring.cens_visit_plotting import plot_params, plot_cumhaz
 from visit_censoring.cens_visit_helper import extract_batches_to_dict, compute_gamma_params
-simulate_all_epochs = lambda: 0
 
-
-BASE = Path(__file__).resolve().parent
-job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 4))
+try:
+    BASE = Path(__file__).resolve().parent
+except NameError:
+    BASE = Path('/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring')
+job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', -1))
 n_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 10))
+partition = os.environ.get('SLURM_JOB_PARTITION', 'local')
+
+if 'gpu' in partition:
+    simulate_all_epochs = lambda: 0
+else:
+    from visit_censoring.cens_visit_simulate import simulate_all_epochs
 
 # %%
 epochs = ["epoch1", "epoch2", "epoch3", "epoch4"]
-params_beta = ['beta01_age', 'beta02_age', 'beta12_age', 'beta01_sex', 'beta02_sex', 'beta12_sex']
 data_names = ['illt', 'ills', 'dt', 'ds', 'sex', 'age']
+params_beta = ['beta01_age', 'beta02_age', 'beta12_age', 'beta01_sex', 'beta02_sex', 'beta12_sex']
 param_names_pretty = [r'$a_{01}$', r'$a_{02}$', r'$a_{12}$',
                       r'$s_{01}$', r'$s_{02}$', r'$s_{12}$',
                       r'$\beta_{01}^\text{sex}$', r'$\beta_{02}^\text{sex}$', r'$\beta_{12}^\text{sex}$',
                       r'$\beta_{01}^\text{age}$', r'$\beta_{02}^\text{age}$', r'$\beta_{12}^\text{age}$']
-# %%
+
 # load baseline results
 with open(BASE / 'baseline.json') as f:
     _baseline = json.load(f)
@@ -78,7 +86,7 @@ for e in epochs:
         'a02': {'naive_cox': naive_estimates[e]['a02']},
         'a12': {'naive_cox': naive_estimates[e]['a12']}
     })
-# %%
+
 # compute mean and sd over all epochs
 beta = {}
 a = {}
@@ -118,52 +126,71 @@ priors = {
     'beta12_age': {'mean': 0.0, 'sd': std_min},
 }
 param_names = list(priors.keys())
+
 # %%
-val_data_path = BASE / 'models' / 'validation_data.pkl'
-train_data_path = BASE / 'models' / 'train_data.pkl'
+data_path = BASE / 'data'
 n_val_data = 1000
 n_train_data = 20000
 create_data = False
 training_data, validation_data = None, None
+training_data_full, validation_data_full = None, None
 
 if create_data:
     # Simulate and extract structured arrays
-    print('Generate validation data...')
+    logging.info('Generate validation data...')
     df_valid = simulate_all_epochs(priors=priors, n_replicates=n_val_data // 4, ncores=n_cpus)
     validation_data = extract_batches_to_dict(df_valid, scheme='CensVisit')
-    with open(val_data_path, 'wb') as f:
+    with open(data_path / 'validation_data.pkl', 'wb') as f:
        pickle.dump(validation_data, f)
+    validation_data_full = extract_batches_to_dict(df_valid, scheme='Full')
+    with open(data_path / 'validation_data_full.pkl', 'wb') as f:
+        pickle.dump(validation_data_full, f)
 
-    print('Generate training data...')
+    logging.info('Generate training data...')
     for i in range(10):
-        print(f'  Batch {i+1}/10')
+        logging.info(f'  Batch {i+1}/10')
         df = simulate_all_epochs(priors=priors, n_replicates=n_train_data // 4 // 10, ncores=n_cpus)
         training_data = extract_batches_to_dict(df, scheme='CensVisit')
-        with open(BASE / 'models' / f'train_data_{i}.pkl', 'wb') as f:
+        with open(data_path / f'train_data_{i}.pkl', 'wb') as f:
             pickle.dump(training_data, f)
+        training_data_full = extract_batches_to_dict(df, scheme='Full')
+        with open(data_path / f'train_data_{i}_full.pkl', 'wb') as f:
+            pickle.dump(training_data_full, f)
 else:
     try:
-        with open(val_data_path, 'rb') as f:
+        with open(data_path / 'validation_data.pkl', 'rb') as f:
             validation_data = pickle.load(f)
+        with open(data_path / 'validation_data_full.pkl', 'rb') as f:
+            validation_data_full = pickle.load(f)
 
-        if os.path.exists(train_data_path):
-            with open(train_data_path, 'rb') as f:
+        if os.path.exists(data_path / 'train_data.pkl'):
+            with open(data_path / 'train_data.pkl', 'rb') as f:
                 training_data = pickle.load(f)
+            with open(data_path / 'train_data_full.pkl', 'rb') as f:
+                training_data_full = pickle.load(f)
         else:
-            print('load single files and combine into one training data file...')
-            training_data = {k: [] for k in validation_data}
-            for i in range(10):
-                with open(BASE / 'models' / f'train_data_{i}.pkl', 'rb') as f:
-                    file = pickle.load(f)
-                for k in file:
-                    training_data[k].append(file[k])
-            for k in training_data:
-                training_data[k] = np.vstack(training_data[k])
-            with open(train_data_path, 'wb') as f:
-                pickle.dump(training_data, f)
+            logging.info('load single files and combine into one training data file...')
+            for add_name in ['', '_full']:
+                training_data = {k: [] for k in validation_data}
+                for i in range(10):
+                    with open(data_path / f'train_data_{i}{add_name}.pkl', 'rb') as f:
+                        file = pickle.load(f)
+                    for k in file:
+                        training_data[k].append(file[k])
+                for k in training_data:
+                    training_data[k] = np.vstack(training_data[k])
+                with open(data_path / f'train_data{add_name}.pkl', 'wb') as f:
+                    pickle.dump(training_data, f)
 
     except FileNotFoundError:
-        print('No data loaded.')
+        logging.warning('No data loaded.')
+
+for data in [validation_data_full, training_data_full]:
+    if data is not None:  # censoring times capped at 5 years
+        data['ds'][data['dt'] > 1825] = 0
+        data['dt'][data['dt'] > 1825] = 1825
+        data['ills'][data['illt'] > 1825] = 0
+        data['illt'][data['illt'] > 1825] = 1825
 
 # %%
 adapter = (
@@ -176,8 +203,7 @@ adapter = (
     # observables
     .constrain(['illt', 'dt'], lower=-2, upper=1826, inclusive='both')
     .standardize(['illt', 'dt'], mean=-25, std=20)
-    .standardize('age', mean=-1.6, std=1)
-    .log('age')
+    .standardize('age', mean=0, std=7.5)
     .expand_dims(data_names, axis=-1)  # expand patients
     .concatenate(data_names + ['epoch'], into="summary_variables", axis=2)
     # parameters
@@ -188,54 +214,34 @@ adapter = (
     .keep(["inference_variables", "summary_variables"])
 )
 
-# %%
-
-if job_array_id == 0:
-    BATCH_SIZE = 128
-    EPOCHS = 1000
-    summary_network = bf.networks.DeepSet(summary_dim=len(param_names) * 2)
-    inference_network = bf.networks.FlowMatching(subnet_kwargs=dict(dropout=0.1))
-    network_name = 'FlowMatching_DeepSet'
-elif job_array_id == 1:
-    BATCH_SIZE = 128
-    EPOCHS = 1000
-    summary_network = bf.networks.DeepSet(summary_dim=len(param_names) * 2)
-    inference_network = bf.networks.DiffusionModel(subnet_kwargs=dict(dropout=0.1))
-    network_name = 'DiffusionModel_DeepSet'
-elif job_array_id == 2:
-    BATCH_SIZE = 128
-    EPOCHS = 1000
-    summary_network = bf.networks.DeepSet(summary_dim=len(param_names) * 2)
-    inference_network = bf.networks.ConsistencyModel(total_steps=EPOCHS * (n_train_data // BATCH_SIZE),
-                                                     subnet_kwargs=dict(dropout=0.1))
-    network_name = 'ConsistencyModel_DeepSet'
-elif job_array_id == 3:
-    BATCH_SIZE = 128
-    EPOCHS = 100
-    summary_network = bf.networks.DeepSet(summary_dim=len(param_names) * 2)
-    inference_network = bf.networks.CouplingFlow(depth=7, transform='spline',
-                                                 subnet_kwargs=dict(dropout=0.1))
-    network_name = 'CouplingFlow_DeepSet'
-elif job_array_id == 4:
+if job_array_id == -1:  # test run
     BATCH_SIZE = 64
-    EPOCHS = 1000
+    EPOCHS = 2
+    summary_network = bf.networks.DeepSet(summary_dim=len(param_names))
+    inference_network = bf.networks.CouplingFlow(depth=2)
+    network_name = 'test'
+    for k, v in validation_data.items():
+        training_data[k] = v[:100]
+elif job_array_id % 4 == 0:
+    BATCH_SIZE = 64
+    EPOCHS = 300
     summary_network = bf.networks.SetTransformer(summary_dim=len(param_names) * 2)
     inference_network = bf.networks.FlowMatching(subnet_kwargs=dict(dropout=0.1))
     network_name = 'FlowMatching_SetTransformer'
-elif job_array_id == 5:
+elif job_array_id % 4 == 1:
     BATCH_SIZE = 64
-    EPOCHS = 1000
+    EPOCHS = 300
     summary_network = bf.networks.SetTransformer(summary_dim=len(param_names) * 2)
     inference_network = bf.networks.DiffusionModel(subnet_kwargs=dict(dropout=0.1))
     network_name = 'DiffusionModel_SetTransformer'
-elif job_array_id == 6:
+elif job_array_id % 4 == 2:
     BATCH_SIZE = 64
-    EPOCHS = 1000
+    EPOCHS = 300
     summary_network = bf.networks.SetTransformer(summary_dim=len(param_names) * 2)
     inference_network = bf.networks.ConsistencyModel(total_steps=EPOCHS * (n_train_data // BATCH_SIZE),
                                                      subnet_kwargs=dict(dropout=0.1))
     network_name = 'ConsistencyModel_SetTransformer'
-elif job_array_id == 7:
+elif job_array_id % 4 == 3:
     BATCH_SIZE = 64
     EPOCHS = 100
     summary_network = bf.networks.SetTransformer(summary_dim=len(param_names) * 2)
@@ -244,8 +250,17 @@ elif job_array_id == 7:
     network_name = 'CouplingFlow_SetTransformer'
 else:
     raise ValueError("Invalid job_array_id.")
+
+if job_array_id > 3:
+    network_name += '_full'
+    test_data = validation_data.copy()
+    training_data = training_data_full
+    validation_data = validation_data_full
+else:
+    test_data = validation_data
+
 model_path = BASE / 'models' / f'weibull_npe_model_{network_name}.keras'
-print(job_array_id, model_path)
+logging.info(model_path)
 
 workflow = bf.BasicWorkflow(
     adapter=adapter,
@@ -262,36 +277,72 @@ if not os.path.exists(model_path):
     )
     workflow.approximator.save(filepath=model_path)
 else:
-    history = None
     workflow.approximator = keras.saving.load_model(filepath=model_path)
-# %%
-if history is not None:
-    fig = bf.diagnostics.loss(history)
-    fig.savefig(BASE / 'plots' / f'{network_name}_training_loss.png')
+
+diagnostics = workflow.compute_default_diagnostics(
+    test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=BATCH_SIZE // 2)
+)
+logging.info(f"RMSE {diagnostics.loc['NRMSE'].mean()}")
+logging.info(f"Calibration Error {diagnostics.loc['Calibration Error'].mean()}")
+
+diagnostics = workflow.plot_default_diagnostics(
+    test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=BATCH_SIZE // 2),
+)
+for diagnostic, fig_d in diagnostics.items():
+    fig_d.savefig(BASE / 'plots' / f'{network_name}_{diagnostic}.png', bbox_inches='tight')
 
 # %%
-if validation_data is not None:
-    posterior_samples_valid = workflow.sample(conditions=validation_data, num_samples=1000,
-                                              batch_size=BATCH_SIZE)
-    ps_valid_adapted = adapter.forward(posterior_samples_valid, strict=False)
-    valid_adapted = adapter.forward(validation_data, strict=False)
+if test_data is not None:
+    logging.info('Validation diagnostics...')
+    for d_name, data in zip(['test', 'valid'], [test_data, validation_data]):
+        if not 'full' in network_name and d_name == "valid":
+            continue
+        posterior_samples_valid = workflow.sample(conditions=data, num_samples=1000,
+                                                  batch_size=BATCH_SIZE // 2)
+        fig = bf.diagnostics.recovery(posterior_samples_valid, data, variable_names=param_names_pretty)
+        plt.savefig(BASE / 'plots' / f'{network_name}_{d_name}_recovery.png')
+        plt.show()
 
-    fig = bf.diagnostics.recovery(posterior_samples_valid, validation_data, variable_names=param_names_pretty)
-    fig.savefig(BASE / 'plots' / f'{network_name}_recovery.png')
-    plt.show()
-    fig = bf.diagnostics.recovery(ps_valid_adapted, valid_adapted, variable_names=param_names_pretty)
-    fig.savefig(BASE / 'plots' / f'{network_name}_recovery_adapted.png')
-    plt.show()
+        fig = bf.diagnostics.calibration_ecdf(posterior_samples_valid, data, variable_names=param_names_pretty,
+                                              difference=True)
+        ax = fig.get_axes()
+        for a in ax:
+            a.set_ylim(-0.25, 0.25)
+        plt.savefig(BASE / 'plots' / f'{network_name}_{d_name}_ecdf.png')
+        plt.show()
 
-    fig = bf.diagnostics.calibration_ecdf(posterior_samples_valid, validation_data, variable_names=param_names_pretty,
-                                          difference=True)
-    ax = fig.get_axes()
-    for a in ax:
-        a.set_ylim(-0.25, 0.25)
-    fig.savefig(BASE / 'plots' / f'{network_name}_ecdf.png')
-    plt.show()
+        _ = adapter.forward(data)  # warm-up adapter
+        ps_valid_adapted = adapter.forward(posterior_samples_valid, strict=False)
+        valid_adapted = adapter.forward(data, strict=False)
+        fig = bf.diagnostics.recovery(ps_valid_adapted, valid_adapted,
+                                      variable_names=[r'trans ' + p for p in param_names_pretty])
+        plt.savefig(BASE / 'plots' / f'{network_name}_{d_name}_recovery_adapted.png')
+        plt.show()
+
+    logging.info('Train a C2ST classifier')
+    embedded_data = workflow.approximator.summarize(validation_data)
+    target_params = np.concatenate([validation_data[k] for k in param_names], axis=-1)
+    targets = np.concatenate((target_params, embedded_data), axis=-1)
+    posterior_samples_test = workflow.sample(conditions=validation_data, num_samples=1,
+                                             batch_size=BATCH_SIZE // 2)
+    posterior_samples_test = np.concatenate([posterior_samples_test[k][:, 0]  for k in param_names], axis=-1)
+    estimates = np.concatenate((posterior_samples_test, embedded_data), axis=-1)
+    estimates_mean = np.mean(estimates, axis=0)
+    estimates_std = np.std(estimates, axis=0)
+
+    c2st_results = bf.diagnostics.metrics.classifier_two_sample_test(
+        estimates=estimates,
+        targets=targets,
+        return_metric_only=False
+    )
+    logging.info(f'C2ST Accuracy: {c2st_results["score"]}')
+else:
+    c2st_results = None
+    estimates_mean, estimates_std = None, None
+
 # %%
 # read files
+logging.info('Load Framingham data...')
 framingham_file_names = [BASE / 'data' / f'epoch{i+1}_CV.csv' for i in range(4)]
 dfs = []
 for i, f in enumerate(framingham_file_names):
@@ -300,27 +351,90 @@ for i, f in enumerate(framingham_file_names):
     new_df['replicate'] = 1
     new_df['scheme'] = 'CensVisit'
     new_df['age_raw'] = new_df['age']
-    new_df['age'] = (new_df['age'] - np.mean(new_df['age'])) / np.std(new_df['age'])
+    new_df['age'] = new_df['ageCentered']
     dfs.append(new_df)
 df_real = pd.concat(dfs, ignore_index=True)
 real_data_dict = extract_batches_to_dict(df_real)
 
 if os.path.exists(BASE / 'models' / f'posterior_samples_{network_name}.pkl'):
+    logging.info('Loading posterior samples...')
     with open(BASE / 'models' / f'posterior_samples_{network_name}.pkl', 'rb') as f:
         real_posterior_samples = pickle.load(f)
 else:
-    #raise ValueError
-    real_posterior_samples = workflow.sample(conditions=real_data_dict, num_samples=1000)
-    with open(BASE / 'models' / f'posterior_samples_{network_name}.pkl', 'wb') as f:
-        pickle.dump(real_posterior_samples, f)
+    logging.info('Sample posterior for Framingham data...')
+    if 'gpu' in partition:
+        real_posterior_samples = workflow.sample(conditions=real_data_dict, num_samples=1000)
+        with open(BASE / 'models' / f'posterior_samples_{network_name}.pkl', 'wb') as f:
+            pickle.dump(real_posterior_samples, f)
+    else:
+        raise ValueError('Needs posterior samples to continue.')
 
-# make beta comparable to other setting without standardization
-std_age = np.std(df_real['age_raw'])
-real_posterior_samples['beta01_age'] = real_posterior_samples['beta01_age'] / std_age
-real_posterior_samples['beta02_age'] = real_posterior_samples['beta02_age'] / std_age
-real_posterior_samples['beta12_age'] = real_posterior_samples['beta12_age'] / std_age
+#%% apply C2ST
+if c2st_results is not None:
+    c2st_result_real = []
+    embedded_real_data = workflow.approximator.summarize(real_data_dict)
+    embedded_real_data = np.repeat(embedded_real_data[:, None], repeats=1000, axis=1)
+    for i in range(len(framingham_file_names)):
+        logging.info(f'Epoch {i+1} C2ST evaluation...')
+
+        posterior_samples_test = np.concatenate([real_posterior_samples[k][i] for k in param_names], axis=-1)
+        estimates_real = np.concatenate((posterior_samples_test, embedded_real_data[i]), axis=-1)
+        estimates_real = (estimates_real - estimates_mean) / estimates_std
+        scores = np.array([c.predict(estimates_real).flatten() for c in c2st_results['classifiers']])
+        scores = np.maximum(scores, 1 - scores)
+        c2st_result_real.append(np.mean(scores, axis=0))
+        logging.info(f'C2ST Accuracy: {np.median(c2st_result_real[-1])}')
+
+    bins = 20
+    norm = mcolors.Normalize(vmin=0.5, vmax=1.0)
+    cmap = mcolors.LinearSegmentedColormap.from_list(
+        "Reds_trunc",
+        plt.cm.Reds(np.linspace(0.1, 1.0, 256))
+    )
+    fig, ax = plt.subplots(nrows=len(param_names), ncols=4, sharey='row', sharex='row', figsize=(10, 12),
+                           layout='constrained')
+    for p_i, p_name in enumerate(param_names):
+        for epoch_idx in range(4):
+            # compute bin assignment
+            x = real_posterior_samples[p_name][epoch_idx].flatten()
+            counts, bin_edges = np.histogram(x, bins=bins, density=True)
+            bin_idx = np.digitize(x, bin_edges) - 1
+
+            # compute mean color per bin
+            bin_color = np.array([
+                np.median(c2st_result_real[epoch_idx][bin_idx == i]) if np.any(bin_idx == i) else 0
+                for i in range(bins)
+            ])
+
+            # plot histogram manually
+            for i in range(bins):
+                ax[p_i, epoch_idx].bar(
+                    bin_edges[i],
+                    counts[i],
+                    width=bin_edges[i + 1] - bin_edges[i],
+                    align="edge",
+                    color=cmap(norm(bin_color[i])),
+                    edgecolor=cmap(norm(bin_color[i]))
+                )
+
+            ax[p_i, epoch_idx].set_xlabel(param_names_pretty[p_i])
+            if epoch_idx == 0:
+                ax[p_i, epoch_idx].set_ylabel("Density")
+            if p_i == 0:
+                ax[p_i, epoch_idx].set_title(rf"Epoch {epoch_idx+1}")
+            # remove top and right spines
+            ax[p_i, epoch_idx].spines['top'].set_visible(False)
+            ax[p_i, epoch_idx].spines['right'].set_visible(False)
+
+    # add colorbar
+    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array([])
+    plt.colorbar(sm, ax=ax, label="Median C2ST Score", fraction=0.02)
+    fig.savefig(BASE / 'plots' / f'{network_name}_real_c2st_histograms.pdf', bbox_inches='tight')
+    plt.show()
 
 #%%
+logging.info('Summarize posterior samples...')
 posterior_summary = {}
 for k, vals in real_posterior_samples.items():
     posterior_summary[k] = {
@@ -330,13 +444,13 @@ for k, vals in real_posterior_samples.items():
     }
 
 prior_samples = {}
-n_samples = 1000
+n_prior_samples = 1000
 for k, v in priors.items():
     if "alpha" in v and "beta" in v:
         # Gamma with rate parameterization
-        prior_samples[k] = np.random.gamma(shape=v["alpha"], scale=1.0/v["beta"], size=n_samples)
+        prior_samples[k] = np.random.gamma(shape=v["alpha"], scale=1.0/v["beta"], size=n_prior_samples)
     elif "mean" in v and "sd" in v:
-        prior_samples[k] = np.random.normal(loc=v["mean"], scale=v["sd"], size=n_samples)
+        prior_samples[k] = np.random.normal(loc=v["mean"], scale=v["sd"], size=n_prior_samples)
     else:
         raise ValueError(f"Unrecognized prior entry: {k}")
 
@@ -347,17 +461,16 @@ for k, vals in prior_samples.items():
         "low": np.quantile(vals, 0.025),
         "high": np.quantile(vals, 0.975),
     }
-#%%
+
 for i in range(len(framingham_file_names)):
-    print(f'Epoch {i+1}')
+    logging.info(f'Epoch {i+1}')
     for k, v in real_posterior_samples.items():
-        print(k, f'Median: {np.median(v, axis=1)[i].item()}, '
+        logging.info(f'{k} Median: {np.median(v, axis=1)[i].item()}, '
                  f'Quantiles: {np.quantile(v, axis=1, q=[0.025, 0.975])[:, i].flatten()}')
-    print('\n')
 
 #%%
-plot_hazard(baseline, prior_samples, prior_summary, real_posterior_samples, posterior_summary, network_name,
-            save_path=BASE / 'plots')
-plot_a1(baseline, prior_samples, real_posterior_samples, network_name, save_path=BASE / 'plots')
+logging.info('Plot results...')
+plot_params(baseline, prior_samples, prior_summary, real_posterior_samples, posterior_summary, network_name, save_path=BASE / 'plots')
 plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, save_path=BASE / 'plots')
-plt.show()
+
+logging.info('Done.')

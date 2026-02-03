@@ -6,7 +6,7 @@ from rpy2.robjects import pandas2ri
 from rpy2.robjects import ListVector
 
 
-ro.r.source('illness_death_simulation_weibull.R')
+ro.r.source('visit_censoring/illness_death_simulation_weibull.R')
 simulate_from_priors_df = ro.globalenv['simulate_from_priors_df']
 
 

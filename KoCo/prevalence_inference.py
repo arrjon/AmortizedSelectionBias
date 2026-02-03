@@ -1,0 +1,392 @@
+#%%
+import os
+os.environ['KERAS_BACKEND'] = 'jax'
+from pathlib import Path
+import logging
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import pandas as pd
+import pickle
+
+import keras
+import bayesflow as bf
+
+from KoCo.prevalence_simulate import simulate_population, full_population_size
+
+try:
+    BASE = Path(__file__).resolve().parent
+except NameError:
+    BASE = Path('/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/KoCo')
+job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', -1))
+n_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 10))
+
+cat_to_int = {
+    'age_group': {'0-19': 0, '20-34': 1, '35-49': 2, '50-64': 3, '65-79': 4, '80+': 5},
+    'sex': {'m': 0, 'f': 1},
+    'hh_size': {'household_1': 1, 'household_2': 2, 'household_34': 3, 'household_5+': 4},
+    'birth_country': {0: 0, 1: 1},
+    'timepoint': {'T1': 1, 'T2': 2, 'T3': 3, 'T4': 4, 'T5': 5}
+}
+colors = ['#4B2E83', '#D64A62', '#1B8A8F']
+
+
+def hyperparameters():
+    return dict(epoch_index=np.random.choice([1,2,3,4,5]))
+
+
+def convert_to_nn_input(new_population: pd.DataFrame, fill_na_value=-1) -> np.ndarray:
+    """convert df to format for NN input"""
+    new_population_nn = new_population.copy()
+    # convert categorical variables to integers
+    for cat in cat_to_int:
+        new_population_nn[cat] = new_population_nn[cat].map(cat_to_int[cat])
+
+    # keep only the relevant columns
+    new_population_nn = new_population_nn[['y_test']+list(cat_to_int.keys())]
+
+    # fill NA values in categorical variables
+    for c in new_population_nn.columns:
+        new_population_nn[c] = new_population_nn[c].fillna(fill_na_value)
+    return new_population_nn.values
+
+
+def simulator(epoch_index):
+    out = simulate_population(
+        epoch_index=epoch_index,
+        n_out=int(full_population_size * 0.1)
+    )
+    # make data suitable for neural network
+    data_df = out['subsample']
+    data = convert_to_nn_input(data_df)
+
+    return dict(
+        prevalence_true=out['prevalence_true'],
+        prevalence_subsample=out['prevalence_subsample'],
+        prevalence_subsample_weighted=out['prevalence_subsample_weighted'],
+        data=data
+    )
+
+simulator_bf = bf.make_simulator([hyperparameters, simulator])
+#%%
+#for k, v in simulator_bf.sample_parallel(100).items():
+#    print(k, v.shape if isinstance(v, np.ndarray) else type(v))
+
+data_path = BASE / 'data'
+n_val_data = 1000
+n_train_data = 10000
+create_data = False
+training_data, validation_data = None, None
+
+if create_data:
+    # Simulate and extract structured arrays
+    logging.info('Generate validation data...')
+    validation_data = simulator_bf.sample_parallel(n_val_data)
+    with open(data_path / 'validation_data.pkl', 'wb') as f:
+       pickle.dump(validation_data, f)
+
+    logging.info('Generate training data...')
+    training_data = simulator_bf.sample_parallel(n_train_data)
+    with open(data_path / f'train_data.pkl', 'wb') as f:
+        pickle.dump(training_data, f)
+else:
+    try:
+        with open(data_path / 'validation_data.pkl', 'rb') as f:
+            validation_data = pickle.load(f)
+        with open(data_path / 'train_data.pkl', 'rb') as f:
+            training_data = pickle.load(f)
+
+    except FileNotFoundError:
+        logging.warning('No data loaded.')
+
+#%%
+param_names = ['prevalence_true', 'prevalence_subsample']
+param_names_pretty = ['True prevalence', 'Subsample prevalence']
+adapter = (
+    bf.adapters.Adapter()
+    .to_array()
+    .convert_dtype(from_dtype="float64", to_dtype="float32")
+    # observables
+    .as_set('data')
+    .concatenate('data', into="summary_variables")
+    # parameters
+    .constrain(param_names, lower=0, upper=1)
+    .concatenate(param_names, into='inference_variables')
+    .keep(["inference_variables", "summary_variables"])
+)
+
+if job_array_id == -1:  # test run
+    BATCH_SIZE = 64
+    EPOCHS = 1
+    summary_network = bf.networks.DeepSet(summary_dim=len(param_names))
+    inference_network = bf.networks.CouplingFlow(depth=2)
+    network_name = 'test'
+    for k, v in validation_data.items():
+        training_data[k] = v[:100]
+elif job_array_id % 4 == 0:
+    BATCH_SIZE = 64
+    EPOCHS = 300
+    summary_network = bf.networks.DeepSet(summary_dim=len(param_names) * 2)
+    inference_network = bf.networks.FlowMatching(subnet_kwargs=dict(dropout=0.1, widths=[128, 128]))
+    network_name = 'FlowMatching_DeepSet'
+else:
+    raise ValueError("Invalid job_array_id.")
+
+
+model_path = BASE / 'models' / f'prevalence_model_{network_name}.keras'
+logging.info(model_path)
+
+workflow = bf.BasicWorkflow(
+    adapter=adapter,
+    summary_network=summary_network,
+    inference_network=inference_network,
+)
+# %%
+if not os.path.exists(model_path):
+    history = workflow.fit_offline(
+        data=training_data,
+        epochs=EPOCHS,
+        batch_size=BATCH_SIZE,
+        validation_data=validation_data,
+    )
+    workflow.approximator.save(filepath=model_path)
+else:
+    workflow.approximator = keras.saving.load_model(filepath=model_path)
+
+diagnostics = workflow.compute_default_diagnostics(
+    test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=BATCH_SIZE // 2),
+    variable_names=param_names_pretty
+)
+logging.info(f"RMSE {diagnostics.loc['NRMSE'].mean()}")
+logging.info(f"Calibration Error {diagnostics.loc['Calibration Error'].mean()}")
+
+diagnostics = workflow.plot_default_diagnostics(
+    test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=BATCH_SIZE // 2),
+    variable_names=param_names_pretty
+)
+for diagnostic, fig_d in diagnostics.items():
+    fig_d.savefig(BASE / 'plots' / f'{network_name}_{diagnostic}.png', bbox_inches='tight')
+
+#%%
+logging.info('Train a C2ST classifier')
+embedded_data = workflow.approximator.summarize(validation_data)
+targets = np.concatenate((validation_data['prevalence_true'], embedded_data), axis=-1)
+posterior_samples_test = workflow.sample(conditions=validation_data, num_samples=1,
+                                         batch_size=BATCH_SIZE // 2)
+estimates = np.concatenate((posterior_samples_test['prevalence_true'][:, 0], embedded_data), axis=-1)
+
+c2st_results = bf.diagnostics.metrics.classifier_two_sample_test(
+    estimates=estimates,
+    targets=targets,
+    return_metric_only=False
+)
+logging.info(f'C2ST Accuracy: {c2st_results["score"]}')
+
+#%%
+logging.getLogger('bayesflow').setLevel(logging.WARNING)
+def error(a, b):
+    return (100*(a - b))**2
+
+logging.info('Inference on test data...')
+n_test_data = 100
+results = {
+    'unadjusted': np.zeros((5, n_test_data)),
+    'adjusted': np.zeros((5, n_test_data)),
+    'NPE': np.zeros((5, n_test_data))
+}
+missing_round = []
+for e_index in range(1, 6):
+    print(f"\n--- Epoch T{e_index} ---")
+    for i_test in range(n_test_data):
+        sim_out = simulate_population(  # no simulation, real outcomes used
+            epoch_index=e_index,
+            n_out=int(full_population_size*0.1),
+            use_real_outcomes=False,
+            bootstrap_resamples=0,
+            seed=i_test
+        )
+        data_df = sim_out['subsample']
+        data = convert_to_nn_input(data_df)
+        posterior_samples_real = workflow.sample(conditions={'data': data[None]}, num_samples=1000,
+                                                 batch_size=BATCH_SIZE // 2)
+
+        results['unadjusted'][e_index-1, i_test] = error(sim_out['prevalence_subsample'], sim_out['prevalence_true'])
+        results['adjusted'][e_index-1, i_test] = error(sim_out['prevalence_subsample_weighted'], sim_out['prevalence_true'])
+        results['NPE'][e_index-1, i_test] = error(np.median(posterior_samples_real['prevalence_true']), sim_out['prevalence_true'])
+    missing_round.append(sum(pd.isna(data_df['y_test'])) / len(data_df) * 100)
+
+#%%
+# Plot boxplot
+fig, ax = plt.subplots(figsize=(5, 2), layout='constrained')
+
+width = 0.2
+offsets = [-width, 0, width]
+labels = ['Unadjusted', 'Weighted', 'Bias-aware NPE']
+
+for i, samples in enumerate(results.values()):
+    pos = np.arange(5) + offsets[i]
+
+    bp = ax.boxplot(
+        [samples[t].flatten() for t in range(5)],
+        positions=pos,
+        widths=0.15,
+        patch_artist=True,      # allows colored boxes
+        #showfliers=False,
+        medianprops=dict(color="black"),
+        boxprops=dict(facecolor=colors[i], alpha=0.7),
+        whiskerprops=dict(color=colors[i]),
+        capprops=dict(color=colors[i]),
+    )
+
+    # Add one legend handle per method
+    bp["boxes"][0].set_label(labels[i])
+
+ax.set_xticks(np.arange(5))
+ax.set_xticklabels([
+    f'$R_1$\n(${round(missing_round[0], 2)}\%$)',
+    f'$R_2$\n(${round(missing_round[1], 2)}\%$)',
+    f'$R_3$\n(${round(missing_round[2], 2)}\%$)',
+    f'$R_4$\n(${round(missing_round[3], 2)}\%$)',
+    f'$R_5$\n(${round(missing_round[4], 2)}\%$)'
+])
+
+ax.set_xlabel(r'Round (Missingness in $\%$)')
+ax.set_ylabel('Squared Error')
+ax.set_yscale('log')
+
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+
+fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.15))
+
+fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence.pdf',
+            bbox_inches='tight')
+
+plt.show()
+
+
+#%%
+logging.info('Inference on real data...')
+results_real = {
+    'unadjusted': [],
+    'adjusted': [],
+    'NPE': [],
+    'C2ST': [],
+}
+missing_round = []
+num_samples = 1000
+estimates_mean = np.mean(estimates, axis=0)
+estimates_std = np.std(estimates, axis=0)
+
+for e_index in range(1, 6):
+    print(f"\n--- Epoch T{e_index} ---")
+    sim_out = simulate_population(  # no simulation, real outcomes used
+        epoch_index=e_index,
+        n_out=int(full_population_size),
+        use_real_outcomes=True,
+        bootstrap_resamples=100,
+    )
+    real_data_df = sim_out['subsample']
+    real_data = convert_to_nn_input(real_data_df)
+    posterior_samples_real = workflow.sample(conditions={'data': real_data[None]}, num_samples=num_samples,
+                                             batch_size=BATCH_SIZE // 2)
+
+    results_real['unadjusted'].append(sim_out['prevalence_subsample'])
+    results_real['adjusted'].append(sim_out['prevalence_subsample_weighted'])
+    results_real['NPE'].append(posterior_samples_real['prevalence_true'])
+    missing_round.append(sum(pd.isna(real_data_df['y_test'])) / len(real_data_df) * 100)
+
+    # use C2ST to evaluate posterior samples quality
+    embedded_real_data = workflow.approximator.summarize({'data': real_data[None]})
+    embedded_real_data = np.repeat(embedded_real_data, repeats=num_samples, axis=0)
+    estimates_real = np.concatenate((posterior_samples_real['prevalence_true'][0], embedded_real_data), axis=-1)
+    estimates_real = (estimates_real - estimates_mean) / estimates_std
+    scores = np.array([c.predict(estimates_real).flatten() for c in c2st_results['classifiers']])
+    scores = np.maximum(scores, 1 - scores)
+    results_real['C2ST'].append(np.mean(scores, axis=0))
+    logging.info(f'C2ST Accuracy: {np.median(results_real["C2ST"][-1])}')
+
+#%%
+# Plot violin plot
+fig, ax = plt.subplots(figsize=(5, 2), layout='constrained')
+width = 0.15
+offsets = [-width, 0, width]
+labels = ['Unadjusted', 'Weighted', 'Bias-aware NPE']
+
+for i, samples in enumerate(list(results_real.values())[:-1]):  # exclude C2ST
+    pos = np.arange(5) + offsets[i]
+    parts = ax.violinplot(
+        [samples[t].flatten()*100 for t in range(5)],
+        positions=pos,
+        widths=width,
+        showmeans=False,
+        showmedians=True,
+        showextrema=False,
+    )
+    # Label each set of violin bodies for legend
+    for body in parts['bodies']:
+        body.set_color(colors[i])
+    for body in parts['bodies']:
+        body.set_label(labels[i])
+        break
+
+ax.set_xticks(np.arange(5))
+ax.set_xticklabels([f'$R_1$\n(${round(missing_round[0], 2)}\%$)', f'$R_2$\n(${round(missing_round[1], 2)}\%$)',
+                    f'$R_3$\n(${round(missing_round[2], 2)}\%$)', f'$R_4$\n(${round(missing_round[3], 2)}\%$)',
+                    f'$R_5$\n(${round(missing_round[4], 2)}\%$)'])
+ax.set_xlabel(r'Round (Missingness in $\%$)')
+ax.set_ylabel(r'Prevalence ($\%$)')
+ax.set_ylim(1,20)
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.15))
+fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence_real.pdf', bbox_inches='tight')
+plt.show()
+
+#%%
+bins = 20
+norm = mcolors.Normalize(vmin=0.5, vmax=1.0)
+cmap = mcolors.LinearSegmentedColormap.from_list(
+    "Reds_trunc",
+    plt.cm.Reds(np.linspace(0.1, 1.0, 256))
+)
+fig, ax = plt.subplots(nrows=1, ncols=5, sharey=True, sharex=True, figsize=(10, 2), layout='constrained')
+for epoch_idx in range(1, 6):
+    # compute bin assignment
+    x = results_real['NPE'][epoch_idx-1].flatten() * 100
+    counts, bin_edges = np.histogram(x, bins=bins, density=True)
+    bin_idx = np.digitize(x, bin_edges) - 1
+
+    # compute mean color per bin
+    bin_color = np.array([
+        np.median(results_real['C2ST'][epoch_idx-1][bin_idx == i]) if np.any(bin_idx == i) else 0
+        for i in range(bins)
+    ])
+
+    # plot histogram manually
+    for i in range(bins):
+        ax[epoch_idx-1].bar(
+            bin_edges[i],
+            counts[i],
+            width=bin_edges[i + 1] - bin_edges[i],
+            align="edge",
+            color=cmap(norm(bin_color[i])),
+            edgecolor=cmap(norm(bin_color[i]))
+        )
+
+    ax[epoch_idx-1].set_xlabel(r"Prevalence ($\%$)")
+    if epoch_idx == 1:
+        ax[epoch_idx-1].set_ylabel("Posterior Density")
+    ax[epoch_idx-1].set_title(rf"Round $R_{epoch_idx}$")
+    # remove top and right spines
+    ax[epoch_idx-1].spines['top'].set_visible(False)
+    ax[epoch_idx-1].spines['right'].set_visible(False)
+
+# add colorbar
+sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+sm.set_array([])
+plt.colorbar(sm, ax=ax, label="Median C2ST Score")
+fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence_real_histograms.pdf', bbox_inches='tight')
+plt.show()
+
+logging.info('Done.')

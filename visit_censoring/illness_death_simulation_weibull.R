@@ -27,7 +27,7 @@ illnessdeath_weibull = function(n.indiv,
                                 ) {
   age = cov_age
   if (age.center.scale) {
-    age = as.numeric(scale(cov_age))  # standardize age
+    age = as.numeric(scale(cov_age, scale=FALSE))  # center age
   }
   sex = cov_sex
 
@@ -287,7 +287,7 @@ simulate_from_priors_df <- function(priors = NA,
 
   for (ep in names(priors)) {
     # Covariates sex (binary) and age (continuous)
-    df <- read.csv(paste0("data/", ep, "_CV.csv"))
+    df <- read.csv(paste0("visit_censoring/data/", ep, "_CV.csv"))
     sex = df$sex
     age_raw = df$age
     n.indiv = length(df$age)
