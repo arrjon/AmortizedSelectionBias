@@ -22,7 +22,7 @@ try:
     BASE = Path(__file__).resolve().parent
 except NameError:
     BASE = Path('/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring')
-job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', -1))
+job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 1))
 n_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 10))
 partition = os.environ.get('SLURM_JOB_PARTITION', 'local')
 
@@ -276,52 +276,64 @@ if not os.path.exists(model_path):
         validation_data=validation_data,
     )
     workflow.approximator.save(filepath=model_path)
+
+    diagnostics = workflow.compute_default_diagnostics(
+        test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=BATCH_SIZE // 2)
+    )
+    logging.info(f"RMSE {diagnostics.loc['NRMSE'].mean()}")
+    logging.info(f"Calibration Error {diagnostics.loc['Calibration Error'].mean()}")
+
+    class HistoryClass(object):
+        def __init__(self, history_to_save):
+            self.history = history_to_save
+
+    with open(BASE / 'models' / f'history_{network_name}', 'wb') as file:
+        model_history = HistoryClass(history.history)
+        pickle.dump(model_history, file)
 else:
     workflow.approximator = keras.saving.load_model(filepath=model_path)
 
-diagnostics = workflow.compute_default_diagnostics(
-    test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=BATCH_SIZE // 2)
-)
-logging.info(f"RMSE {diagnostics.loc['NRMSE'].mean()}")
-logging.info(f"Calibration Error {diagnostics.loc['Calibration Error'].mean()}")
-
-diagnostics = workflow.plot_default_diagnostics(
-    test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=BATCH_SIZE // 2),
-)
-for diagnostic, fig_d in diagnostics.items():
-    fig_d.savefig(BASE / 'plots' / f'{network_name}_{diagnostic}.png', bbox_inches='tight')
+    with open(BASE / 'models' / f'history_{network_name}', 'rb') as file:
+        workflow.history = pickle.load(file)
+    bf.diagnostics.loss(workflow.history)
+    plt.savefig(BASE / 'plots' / f'{network_name}_loss.png')
+    plt.close()
 
 # %%
 if test_data is not None:
     logging.info('Validation diagnostics...')
-    for d_name, data in zip(['test', 'valid'], [test_data, validation_data]):
-        if not 'full' in network_name and d_name == "valid":
-            continue
-        posterior_samples_valid = workflow.sample(conditions=data, num_samples=1000,
+    if not os.path.exists(BASE / 'plots' / f'{network_name}_recovery.png'):
+        posterior_samples_valid = workflow.sample(conditions=validation_data, num_samples=1000,
                                                   batch_size=BATCH_SIZE // 2)
-        fig = bf.diagnostics.recovery(posterior_samples_valid, data, variable_names=param_names_pretty)
-        plt.savefig(BASE / 'plots' / f'{network_name}_{d_name}_recovery.png')
-        plt.show()
+        fig = bf.diagnostics.recovery(posterior_samples_valid, validation_data, variable_names=param_names_pretty)
+        plt.savefig(BASE / 'plots' / f'{network_name}_recovery.png', bbox_inches='tight')
+        plt.close()
 
-        fig = bf.diagnostics.calibration_ecdf(posterior_samples_valid, data, variable_names=param_names_pretty,
+        fig = bf.diagnostics.calibration_ecdf(posterior_samples_valid, validation_data, variable_names=param_names_pretty,
                                               difference=True)
         ax = fig.get_axes()
         for a in ax:
             a.set_ylim(-0.25, 0.25)
-        plt.savefig(BASE / 'plots' / f'{network_name}_{d_name}_ecdf.png')
-        plt.show()
+        plt.savefig(BASE / 'plots' / f'{network_name}_ecdf.png', bbox_inches='tight')
+        plt.close()
 
-        _ = adapter.forward(data)  # warm-up adapter
+        _ = adapter.forward(validation_data)  # warm-up adapter
         ps_valid_adapted = adapter.forward(posterior_samples_valid, strict=False)
-        valid_adapted = adapter.forward(data, strict=False)
+        valid_adapted = adapter.forward(validation_data, strict=False)
         fig = bf.diagnostics.recovery(ps_valid_adapted, valid_adapted,
                                       variable_names=[r'trans ' + p for p in param_names_pretty])
-        plt.savefig(BASE / 'plots' / f'{network_name}_{d_name}_recovery_adapted.png')
-        plt.show()
+        plt.savefig(BASE / 'plots' / f'{network_name}_recovery_adapted.png', bbox_inches='tight')
+        plt.close()
 
-    logging.info('Train a C2ST classifier')
-    embedded_data = workflow.approximator.summarize(validation_data)
-    target_params = np.concatenate([validation_data[k] for k in param_names], axis=-1)
+    logging.info('Prepare C2ST classifier')
+    embedded_data = []
+    for i in range(0, len(validation_data['dt']), BATCH_SIZE):
+        batch = {name: validation_data[name][i:i + BATCH_SIZE] for name in validation_data}
+        embedded_data_batch = workflow.approximator.summarize(batch)
+        embedded_data.append(embedded_data_batch)
+    embedded_data = np.vstack(embedded_data)
+    #embedded_data = workflow.approximator.summarize(validation_data)
+    target_params = np.concatenate([validation_data[name] for name in param_names], axis=-1)
     targets = np.concatenate((target_params, embedded_data), axis=-1)
     posterior_samples_test = workflow.sample(conditions=validation_data, num_samples=1,
                                              batch_size=BATCH_SIZE // 2)
@@ -330,10 +342,12 @@ if test_data is not None:
     estimates_mean = np.mean(estimates, axis=0)
     estimates_std = np.std(estimates, axis=0)
 
+    logging.info('Train C2ST classifier')
     c2st_results = bf.diagnostics.metrics.classifier_two_sample_test(
         estimates=estimates,
         targets=targets,
-        return_metric_only=False
+        return_metric_only=False,
+        batch_size=BATCH_SIZE
     )
     logging.info(f'C2ST Accuracy: {c2st_results["score"]}')
 else:
@@ -362,12 +376,9 @@ if os.path.exists(BASE / 'models' / f'posterior_samples_{network_name}.pkl'):
         real_posterior_samples = pickle.load(f)
 else:
     logging.info('Sample posterior for Framingham data...')
-    if 'gpu' in partition:
-        real_posterior_samples = workflow.sample(conditions=real_data_dict, num_samples=1000)
-        with open(BASE / 'models' / f'posterior_samples_{network_name}.pkl', 'wb') as f:
-            pickle.dump(real_posterior_samples, f)
-    else:
-        raise ValueError('Needs posterior samples to continue.')
+    real_posterior_samples = workflow.sample(conditions=real_data_dict, num_samples=1000)
+    with open(BASE / 'models' / f'posterior_samples_{network_name}.pkl', 'wb') as f:
+        pickle.dump(real_posterior_samples, f)
 
 #%% apply C2ST
 if c2st_results is not None:
@@ -430,8 +441,8 @@ if c2st_results is not None:
     sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
     sm.set_array([])
     plt.colorbar(sm, ax=ax, label="Median C2ST Score", fraction=0.02)
-    fig.savefig(BASE / 'plots' / f'{network_name}_real_c2st_histograms.pdf', bbox_inches='tight')
-    plt.show()
+    plt.savefig(BASE / 'plots' / f'{network_name}_real_c2st_histograms.pdf', bbox_inches='tight')
+    plt.close()
 
 #%%
 logging.info('Summarize posterior samples...')

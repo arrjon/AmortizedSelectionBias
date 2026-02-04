@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import pandas as pd
 import pickle
+from joblib import Parallel, delayed
+from tqdm import tqdm
 
 import keras
 import bayesflow as bf
@@ -18,7 +20,7 @@ try:
     BASE = Path(__file__).resolve().parent
 except NameError:
     BASE = Path('/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/KoCo')
-job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', -1))
+job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
 n_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 10))
 
 cat_to_int = {
@@ -153,6 +155,7 @@ if not os.path.exists(model_path):
 else:
     workflow.approximator = keras.saving.load_model(filepath=model_path)
 
+#%%
 diagnostics = workflow.compute_default_diagnostics(
     test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=BATCH_SIZE // 2),
     variable_names=param_names_pretty
@@ -185,10 +188,12 @@ logging.info(f'C2ST Accuracy: {c2st_results["score"]}')
 #%%
 logging.getLogger('bayesflow').setLevel(logging.WARNING)
 def error(a, b):
-    return (100*(a - b))**2
+    """Error in percentage points"""
+    return np.abs(a - b)*100
 
 logging.info('Inference on test data...')
 n_test_data = 100
+num_samples = 1000
 results = {
     'unadjusted': np.zeros((5, n_test_data)),
     'adjusted': np.zeros((5, n_test_data)),
@@ -196,23 +201,51 @@ results = {
 }
 missing_round = []
 for e_index in range(1, 6):
-    print(f"\n--- Epoch T{e_index} ---")
-    for i_test in range(n_test_data):
-        sim_out = simulate_population(  # no simulation, real outcomes used
+    logging.info(f"\n--- Epoch T{e_index} ---")
+    sim_out = Parallel(n_jobs=n_cpus)(
+        delayed(simulate_population)(
             epoch_index=e_index,
             n_out=int(full_population_size*0.1),
             use_real_outcomes=False,
             bootstrap_resamples=0,
             seed=i_test
-        )
-        data_df = sim_out['subsample']
+        ) for i_test in range(n_test_data)
+    )
+    data_list = []
+    for i_test in range(n_test_data):
+        data_df = sim_out[i_test]['subsample']
         data = convert_to_nn_input(data_df)
-        posterior_samples_real = workflow.sample(conditions={'data': data[None]}, num_samples=1000,
-                                                 batch_size=BATCH_SIZE // 2)
+        data_list.append(data)
+    data_list = np.stack(data_list, axis=0)
+    posterior_samples_real = workflow.sample(conditions={'data': data_list}, num_samples=num_samples,
+                                             batch_size=BATCH_SIZE)
 
-        results['unadjusted'][e_index-1, i_test] = error(sim_out['prevalence_subsample'], sim_out['prevalence_true'])
-        results['adjusted'][e_index-1, i_test] = error(sim_out['prevalence_subsample_weighted'], sim_out['prevalence_true'])
-        results['NPE'][e_index-1, i_test] = error(np.median(posterior_samples_real['prevalence_true']), sim_out['prevalence_true'])
+    logging.info('Compute posterior modes...')
+    posterior_mode = []
+    for i in tqdm(range(n_test_data)):  # batch the data for log prob computation
+        batch = {
+            'data': np.repeat(data_list[i][None], num_samples, axis=0),
+            'prevalence_true': posterior_samples_real['prevalence_true'][i],
+            'prevalence_subsample': posterior_samples_real['prevalence_subsample'][i]
+        }
+        log_prob = workflow.log_prob(batch)
+        mode_idx = np.argmax(log_prob)
+        posterior_mode.append(batch['prevalence_true'][mode_idx].item())
+
+    results['unadjusted'][e_index-1] = error(
+        np.array([pv['prevalence_subsample'] for pv in sim_out]),
+        np.array([pv['prevalence_true'] for pv in sim_out])
+    )
+    results['adjusted'][e_index - 1] = error(
+        np.array([pv['prevalence_subsample_weighted'] for pv in sim_out]),
+        np.array([pv['prevalence_true'] for pv in sim_out])
+    )
+    results['NPE'][e_index - 1] = error(
+        #np.median(posterior_samples_real['prevalence_true'], axis=1).flatten(),
+        np.array(posterior_mode),
+        np.array([pv['prevalence_true'] for pv in sim_out])
+    )
+    logging.info(f"Error NPE: {np.median(results['NPE'][e_index - 1])}")
     missing_round.append(sum(pd.isna(data_df['y_test'])) / len(data_df) * 100)
 
 #%%
@@ -231,7 +264,7 @@ for i, samples in enumerate(results.values()):
         positions=pos,
         widths=0.15,
         patch_artist=True,      # allows colored boxes
-        #showfliers=False,
+        showfliers=False,
         medianprops=dict(color="black"),
         boxprops=dict(facecolor=colors[i], alpha=0.7),
         whiskerprops=dict(color=colors[i]),
@@ -249,19 +282,14 @@ ax.set_xticklabels([
     f'$R_4$\n(${round(missing_round[3], 2)}\%$)',
     f'$R_5$\n(${round(missing_round[4], 2)}\%$)'
 ])
-
 ax.set_xlabel(r'Round (Missingness in $\%$)')
-ax.set_ylabel('Squared Error')
-ax.set_yscale('log')
+ax.set_ylabel('Absolute Error\nin Percentage Points')
 
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
-
 fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.15))
-
 fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence.pdf',
             bbox_inches='tight')
-
 plt.show()
 
 
@@ -279,20 +307,26 @@ estimates_mean = np.mean(estimates, axis=0)
 estimates_std = np.std(estimates, axis=0)
 
 for e_index in range(1, 6):
-    print(f"\n--- Epoch T{e_index} ---")
+    logging.info(f"\n--- Epoch T{e_index} ---")
     sim_out = simulate_population(  # no simulation, real outcomes used
         epoch_index=e_index,
         n_out=int(full_population_size),
         use_real_outcomes=True,
         bootstrap_resamples=100,
     )
+    results_real['unadjusted'].append(sim_out['prevalence_subsample'])
+    results_real['adjusted'].append(sim_out['prevalence_subsample_weighted'])
+
+    sim_out = simulate_population(  # no simulation, real outcomes used
+        epoch_index=e_index,
+        n_out=int(full_population_size),
+        use_real_outcomes=True,
+        bootstrap_resamples=0,  # so the real df is returned
+    )
     real_data_df = sim_out['subsample']
     real_data = convert_to_nn_input(real_data_df)
     posterior_samples_real = workflow.sample(conditions={'data': real_data[None]}, num_samples=num_samples,
                                              batch_size=BATCH_SIZE // 2)
-
-    results_real['unadjusted'].append(sim_out['prevalence_subsample'])
-    results_real['adjusted'].append(sim_out['prevalence_subsample_weighted'])
     results_real['NPE'].append(posterior_samples_real['prevalence_true'])
     missing_round.append(sum(pd.isna(real_data_df['y_test'])) / len(real_data_df) * 100)
 
@@ -326,6 +360,7 @@ for i, samples in enumerate(list(results_real.values())[:-1]):  # exclude C2ST
     # Label each set of violin bodies for legend
     for body in parts['bodies']:
         body.set_color(colors[i])
+    parts['cmedians'].set_color(colors[i])
     for body in parts['bodies']:
         body.set_label(labels[i])
         break
@@ -336,7 +371,6 @@ ax.set_xticklabels([f'$R_1$\n(${round(missing_round[0], 2)}\%$)', f'$R_2$\n(${ro
                     f'$R_5$\n(${round(missing_round[4], 2)}\%$)'])
 ax.set_xlabel(r'Round (Missingness in $\%$)')
 ax.set_ylabel(r'Prevalence ($\%$)')
-ax.set_ylim(1,20)
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.15))

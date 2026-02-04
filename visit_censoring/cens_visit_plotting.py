@@ -244,7 +244,9 @@ def plot_params(
 
     if save_path is not None:
         fig.savefig(save_path / f'{network_name}_params.png', bbox_inches='tight')
-    plt.show()
+        plt.close(fig)
+    else:
+        plt.show()
     return
 
 
@@ -427,5 +429,7 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, per_person=1
 
     if save_path is not None:
         plt.savefig(save_path / f'{network_name}_{a01_param_name}_cumhaz_age_sex.png', bbox_inches='tight')
-    plt.show()
+        plt.close(fig)
+    else:
+        plt.show()
     return
