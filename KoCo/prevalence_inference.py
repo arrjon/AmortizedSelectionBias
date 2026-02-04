@@ -203,6 +203,12 @@ def error(a, b):
 
 logging.info('Inference on test data...')
 num_samples = 500
+
+results_missing = {
+    'unadjusted': np.zeros((5, n_val_data)),
+    'adjusted': np.zeros((5, n_val_data)),
+    'NPE': np.zeros((5, n_val_data))
+}
 results = {
     'unadjusted': np.zeros((5, n_val_data)),
     'adjusted': np.zeros((5, n_val_data)),
@@ -210,18 +216,31 @@ results = {
 }
 for e_index in range(1, 6):
     logging.info(f"\n--- Epoch T{e_index} ---")
-    sim_out = Parallel(n_jobs=n_cpus)(
+    sim_out_missing = Parallel(n_jobs=n_cpus)(
         delayed(simulate_population)(
             epoch_index=e_index,
             n_out=int(full_population_size*0.1),
             use_real_outcomes=False,
+            with_missingness=True,
             bootstrap_resamples=0,
             seed=i_test
         ) for i_test in range(n_val_data)
     )
+    # simulate same datasets
+    sim_out = Parallel(n_jobs=n_cpus)(
+        delayed(simulate_population)(
+            epoch_index=e_index,
+            n_out=int(full_population_size * 0.1),
+            use_real_outcomes=False,
+            with_missingness=False,
+            bootstrap_resamples=0,
+            seed=i_test
+        ) for i_test in range(n_val_data)
+    )
+
     data_list = []
     for i_test in range(n_val_data):
-        data_df = sim_out[i_test]['subsample']
+        data_df = sim_out_missing[i_test]['subsample']  # NPE is only trained on data with missing entries
         data = convert_to_nn_input(data_df)
         data_list.append(data)
     data_list = np.stack(data_list, axis=0)
@@ -240,7 +259,20 @@ for e_index in range(1, 6):
         mode_idx = np.argmax(log_prob)
         posterior_mode.append(batch['prevalence_true'][mode_idx].item())
 
-    results['unadjusted'][e_index-1] = error(
+    results_missing['unadjusted'][e_index-1] = error(
+        np.array([pv['prevalence_subsample'] for pv in sim_out_missing]),
+        np.array([pv['prevalence_true'] for pv in sim_out_missing])
+    )
+    results_missing['adjusted'][e_index - 1] = error(
+        np.array([pv['prevalence_subsample_weighted'] for pv in sim_out_missing]),
+        np.array([pv['prevalence_true'] for pv in sim_out_missing])
+    )
+    results_missing['NPE'][e_index - 1] = error(
+        #np.median(posterior_samples_real['prevalence_true'], axis=1).flatten(),
+        np.array(posterior_mode),
+        np.array([pv['prevalence_true'] for pv in sim_out_missing])
+    )
+    results['unadjusted'][e_index - 1] = error(
         np.array([pv['prevalence_subsample'] for pv in sim_out]),
         np.array([pv['prevalence_true'] for pv in sim_out])
     )
@@ -255,37 +287,44 @@ for e_index in range(1, 6):
     )
     logging.info(f"Error NPE: {np.median(results['NPE'][e_index - 1])}")
 
-#%%
-# Plot boxplot
-fig, ax = plt.subplots(figsize=(5, 2), layout='constrained')
-width = 0.2
-offsets = [-width, 0, width]
-labels = ['Unadjusted', 'Weighted', 'Bias-aware NPE']
-for i, samples in enumerate(results.values()):
-    pos = np.arange(5) + offsets[i]
-    bp = ax.boxplot(
-        [samples[t].flatten() for t in range(5)],
-        positions=pos,
-        widths=0.15,
-        patch_artist=True,
-        showfliers=False,
-        medianprops=dict(color="black"),
-        boxprops=dict(facecolor=colors[i], alpha=0.7),
-        whiskerprops=dict(color=colors[i]),
-        capprops=dict(color=colors[i]),
-    )
-    bp["boxes"][0].set_label(labels[i])
+for missing, result in zip([True, False], [results_missing, results]):
+    # Plot boxplot
+    fig, ax = plt.subplots(figsize=(5, 2), layout='constrained')
+    width = 0.2
+    offsets = [-width, 0, width]
+    labels = ['Unadjusted', 'Weighted', 'Bias-aware NPE']
+    for i, samples in enumerate(result.values()):
+        pos = np.arange(5) + offsets[i]
+        bp = ax.boxplot(
+            [samples[t].flatten() for t in range(5)],
+            positions=pos,
+            widths=0.15,
+            patch_artist=True,
+            showfliers=False,
+            medianprops=dict(color="black"),
+            boxprops=dict(facecolor=colors[i], alpha=0.7),
+            whiskerprops=dict(color=colors[i]),
+            capprops=dict(color=colors[i]),
+        )
+        bp["boxes"][0].set_label(labels[i])
 
-ax.set_xticks(np.arange(5))
-ax.set_xticklabels(['$R_1$', '$R_2$', '$R_3$', '$R_4$', '$R_5$'])
-ax.set_xlabel(r'Simulated round')
-ax.set_ylabel('Absolute error\nin percentage points')
-ax.grid(axis='y')
-ax.spines['top'].set_visible(False)
-ax.spines['right'].set_visible(False)
-fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.15), frameon=False)
-fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence.pdf', bbox_inches='tight')
-plt.show()
+    ax.set_xticks(np.arange(5))
+    ax.set_xticklabels(['$R_1$', '$R_2$', '$R_3$', '$R_4$', '$R_5$'])
+    if missing:
+        ax.set_xlabel(r'Simulated round (with missingness)')
+    else:
+        ax.set_xlabel(r'Simulated round')
+    ax.set_ylabel('Absolute error\nin percentage points')
+    ax.grid(axis='y')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.set_ylim(0, 3)
+    fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.15), frameon=False)
+    if missing:
+        fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence_missing.pdf', bbox_inches='tight')
+    else:
+        fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence.pdf', bbox_inches='tight')
+    plt.show()
 
 #%%
 logging.info('Inference on real data...')

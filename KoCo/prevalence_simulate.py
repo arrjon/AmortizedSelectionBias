@@ -356,6 +356,7 @@ def simulate_population(
     intercept_logodds: Tuple[float, float] = (-3.0, 1.0),
     coef_logor: Tuple[float, float] = (0.0, 0.5),
     use_real_outcomes: bool = False,
+    with_missingness: bool = True,
     bootstrap_resamples: int = 0,  #  0 is no bootstrap, >1 is number of bootstrap resamples
     seed: int | None = None,
 ) -> Dict:
@@ -372,6 +373,9 @@ def simulate_population(
     else:
         bootstrap = False
         bootstrap_resamples = 1
+    if use_real_outcomes and not with_missingness:
+        raise ValueError("Real data has missingness; cannot set with_missingness=False.")
+
     out = []
     for b_i in range(bootstrap_resamples):
         # ---- oversampling ----
@@ -424,7 +428,8 @@ def simulate_population(
                 seed=None if seed is None else seed + 4 + b_i,
             )
             y_test = y_test.astype(float)
-            y_test[pop_oversample['pos'].isna().values] = np.nan  # retain missingness from KoCo data
+            if with_missingness:
+                y_test[pop_oversample['pos'].isna().values] = np.nan  # retain missingness from KoCo data
 
             # ---- prevalence estimates ----
             pop_oversample["y_true"] = y_true
