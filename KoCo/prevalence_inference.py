@@ -123,6 +123,7 @@ if job_array_id == -1:  # test run
     summary_network = bf.networks.DeepSet(summary_dim=len(param_names))
     inference_network = bf.networks.CouplingFlow(depth=2)
     network_name = 'test'
+    training_data = {}
     for k, v in validation_data.items():
         training_data[k] = v[:100]
 elif job_array_id % 4 == 0:
