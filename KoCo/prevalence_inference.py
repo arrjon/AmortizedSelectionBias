@@ -144,6 +144,10 @@ workflow = bf.BasicWorkflow(
     inference_network=inference_network,
 )
 # %%
+class HistoryClass(object):
+    def __init__(self, history_to_save):
+        self.history = history_to_save
+
 if not os.path.exists(model_path):
     history = workflow.fit_offline(
         data=training_data,
@@ -159,8 +163,21 @@ if not os.path.exists(model_path):
     )
     logging.info(f"RMSE {diagnostics.loc['NRMSE'].mean()}")
     logging.info(f"Calibration Error {diagnostics.loc['Calibration Error'].mean()}")
+
+    with open(BASE / 'models' / f'history_{network_name}.pkl', 'wb') as file:
+        model_history = HistoryClass(history.history)
+        pickle.dump(model_history, file)
 else:
     workflow.approximator = keras.saving.load_model(filepath=model_path)
+
+    try:
+        with open(BASE / 'models' / f'history_{network_name}.pkl', 'rb') as file:
+            workflow.history = pickle.load(file)
+        bf.diagnostics.loss(workflow.history, val_color=colors[-1], train_color='black')
+        plt.savefig(BASE / 'plots' / f'{network_name}_loss.pdf', bbox_inches='tight')
+        plt.close()
+    except FileNotFoundError:
+        logging.info("No history file found.")
 
 #%%
 diagnostics = workflow.plot_default_diagnostics(
