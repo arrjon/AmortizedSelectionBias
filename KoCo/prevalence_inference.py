@@ -152,36 +152,46 @@ if not os.path.exists(model_path):
         validation_data=validation_data,
     )
     workflow.approximator.save(filepath=model_path)
+
+    diagnostics = workflow.compute_default_diagnostics(
+        test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=BATCH_SIZE // 2),
+        variable_names=param_names_pretty
+    )
+    logging.info(f"RMSE {diagnostics.loc['NRMSE'].mean()}")
+    logging.info(f"Calibration Error {diagnostics.loc['Calibration Error'].mean()}")
 else:
     workflow.approximator = keras.saving.load_model(filepath=model_path)
 
 #%%
-diagnostics = workflow.compute_default_diagnostics(
-    test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=BATCH_SIZE // 2),
-    variable_names=param_names_pretty
-)
-logging.info(f"RMSE {diagnostics.loc['NRMSE'].mean()}")
-logging.info(f"Calibration Error {diagnostics.loc['Calibration Error'].mean()}")
-
 diagnostics = workflow.plot_default_diagnostics(
     test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=BATCH_SIZE // 2),
+    loss_kwargs=dict(val_color=colors[-1], train_color='black'),
+    recovery_kwargs=dict(figsize=(5,2), add_corr=False, color=colors[-1], label_fontsize=9, metric_fontsize=9, tick_fontsize=9),
+    calibration_ecdf_kwargs=dict(rank_ecdf_color=colors[-1]),
+    coverage_kwargs=dict(color=colors[-1]),
+    z_score_contraction_kwargs=dict(color=colors[-1]),
     variable_names=param_names_pretty
 )
 for diagnostic, fig_d in diagnostics.items():
-    fig_d.savefig(BASE / 'plots' / f'{network_name}_{diagnostic}.png', bbox_inches='tight')
+    if diagnostic == 'recovery':
+        fig_d.axes[0].set_title(None)
+        fig_d.axes[1].set_title(None)
+    fig_d.savefig(BASE / 'plots' / f'{network_name}_{diagnostic}.pdf', bbox_inches='tight')
+    plt.close(fig_d)
 
 #%%
-logging.info('Train a C2ST classifier')
+logging.info('Prepare C2ST classifier')
 embedded_data = workflow.approximator.summarize(validation_data)
 targets = np.concatenate((validation_data['prevalence_true'], embedded_data), axis=-1)
 posterior_samples_test = workflow.sample(conditions=validation_data, num_samples=1,
                                          batch_size=BATCH_SIZE // 2)
 estimates = np.concatenate((posterior_samples_test['prevalence_true'][:, 0], embedded_data), axis=-1)
-
+logging.info('Train C2ST classifier')
 c2st_results = bf.diagnostics.metrics.classifier_two_sample_test(
     estimates=estimates,
     targets=targets,
-    return_metric_only=False
+    return_metric_only=False,
+    batch_size=BATCH_SIZE,
 )
 logging.info(f'C2ST Accuracy: {c2st_results["score"]}')
 
@@ -192,14 +202,12 @@ def error(a, b):
     return np.abs(a - b)*100
 
 logging.info('Inference on test data...')
-n_test_data = 100
-num_samples = 1000
+num_samples = 500
 results = {
-    'unadjusted': np.zeros((5, n_test_data)),
-    'adjusted': np.zeros((5, n_test_data)),
-    'NPE': np.zeros((5, n_test_data))
+    'unadjusted': np.zeros((5, n_val_data)),
+    'adjusted': np.zeros((5, n_val_data)),
+    'NPE': np.zeros((5, n_val_data))
 }
-missing_round = []
 for e_index in range(1, 6):
     logging.info(f"\n--- Epoch T{e_index} ---")
     sim_out = Parallel(n_jobs=n_cpus)(
@@ -209,10 +217,10 @@ for e_index in range(1, 6):
             use_real_outcomes=False,
             bootstrap_resamples=0,
             seed=i_test
-        ) for i_test in range(n_test_data)
+        ) for i_test in range(n_val_data)
     )
     data_list = []
-    for i_test in range(n_test_data):
+    for i_test in range(n_val_data):
         data_df = sim_out[i_test]['subsample']
         data = convert_to_nn_input(data_df)
         data_list.append(data)
@@ -220,17 +228,17 @@ for e_index in range(1, 6):
     posterior_samples_real = workflow.sample(conditions={'data': data_list}, num_samples=num_samples,
                                              batch_size=BATCH_SIZE)
 
-    logging.info('Compute posterior modes...')
-    posterior_mode = []
-    for i in tqdm(range(n_test_data)):  # batch the data for log prob computation
-        batch = {
-            'data': np.repeat(data_list[i][None], num_samples, axis=0),
-            'prevalence_true': posterior_samples_real['prevalence_true'][i],
-            'prevalence_subsample': posterior_samples_real['prevalence_subsample'][i]
-        }
-        log_prob = workflow.log_prob(batch)
-        mode_idx = np.argmax(log_prob)
-        posterior_mode.append(batch['prevalence_true'][mode_idx].item())
+    # logging.info('Compute posterior modes...')
+    # posterior_mode = []
+    # for i in tqdm(range(n_test_data)):  # batch the data for log prob computation
+    #     batch = {
+    #         'data': np.repeat(data_list[i][None], num_samples, axis=0),
+    #         'prevalence_true': posterior_samples_real['prevalence_true'][i],
+    #         'prevalence_subsample': posterior_samples_real['prevalence_subsample'][i]
+    #     }
+    #     log_prob = workflow.log_prob(batch)
+    #     mode_idx = np.argmax(log_prob)
+    #     posterior_mode.append(batch['prevalence_true'][mode_idx].item())
 
     results['unadjusted'][e_index-1] = error(
         np.array([pv['prevalence_subsample'] for pv in sim_out]),
@@ -241,57 +249,43 @@ for e_index in range(1, 6):
         np.array([pv['prevalence_true'] for pv in sim_out])
     )
     results['NPE'][e_index - 1] = error(
-        #np.median(posterior_samples_real['prevalence_true'], axis=1).flatten(),
-        np.array(posterior_mode),
+        np.median(posterior_samples_real['prevalence_true'], axis=1).flatten(),
+        #np.array(posterior_mode),
         np.array([pv['prevalence_true'] for pv in sim_out])
     )
     logging.info(f"Error NPE: {np.median(results['NPE'][e_index - 1])}")
-    missing_round.append(sum(pd.isna(data_df['y_test'])) / len(data_df) * 100)
 
 #%%
 # Plot boxplot
 fig, ax = plt.subplots(figsize=(5, 2), layout='constrained')
-
 width = 0.2
 offsets = [-width, 0, width]
 labels = ['Unadjusted', 'Weighted', 'Bias-aware NPE']
-
 for i, samples in enumerate(results.values()):
     pos = np.arange(5) + offsets[i]
-
     bp = ax.boxplot(
         [samples[t].flatten() for t in range(5)],
         positions=pos,
         widths=0.15,
-        patch_artist=True,      # allows colored boxes
+        patch_artist=True,
         showfliers=False,
         medianprops=dict(color="black"),
         boxprops=dict(facecolor=colors[i], alpha=0.7),
         whiskerprops=dict(color=colors[i]),
         capprops=dict(color=colors[i]),
     )
-
-    # Add one legend handle per method
     bp["boxes"][0].set_label(labels[i])
 
 ax.set_xticks(np.arange(5))
-ax.set_xticklabels([
-    f'$R_1$\n(${round(missing_round[0], 2)}\%$)',
-    f'$R_2$\n(${round(missing_round[1], 2)}\%$)',
-    f'$R_3$\n(${round(missing_round[2], 2)}\%$)',
-    f'$R_4$\n(${round(missing_round[3], 2)}\%$)',
-    f'$R_5$\n(${round(missing_round[4], 2)}\%$)'
-])
-ax.set_xlabel(r'Round (Missingness in $\%$)')
-ax.set_ylabel('Absolute Error\nin Percentage Points')
-
+ax.set_xticklabels(['$R_1$', '$R_2$', '$R_3$', '$R_4$', '$R_5$'])
+ax.set_xlabel(r'Simulated round')
+ax.set_ylabel('Absolute error\nin percentage points')
+ax.grid(axis='y')
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
-fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.15))
-fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence.pdf',
-            bbox_inches='tight')
+fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.15), frameon=False)
+fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence.pdf', bbox_inches='tight')
 plt.show()
-
 
 #%%
 logging.info('Inference on real data...')
@@ -373,7 +367,7 @@ ax.set_xlabel(r'Round (Missingness in $\%$)')
 ax.set_ylabel(r'Prevalence ($\%$)')
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
-fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.15))
+ax.grid(axis='y', alpha=0.7)
 fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence_real.pdf', bbox_inches='tight')
 plt.show()
 
@@ -415,11 +409,21 @@ for epoch_idx in range(1, 6):
     # remove top and right spines
     ax[epoch_idx-1].spines['top'].set_visible(False)
     ax[epoch_idx-1].spines['right'].set_visible(False)
+    # plot median scores
+    median_score = np.median(results_real['C2ST'][epoch_idx-1])
+    ax[epoch_idx-1].text(
+        0.95, 0.95,
+        f"Median C2ST={median_score:.2f}",
+        horizontalalignment='right',
+        verticalalignment='top',
+        transform=ax[epoch_idx-1].transAxes,
+        fontsize=9,
+    )
 
 # add colorbar
 sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
 sm.set_array([])
-plt.colorbar(sm, ax=ax, label="Median C2ST Score")
+plt.colorbar(sm, ax=ax, label="C2ST Score\n(Median over Bin)")
 fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence_real_histograms.pdf', bbox_inches='tight')
 plt.show()
 
