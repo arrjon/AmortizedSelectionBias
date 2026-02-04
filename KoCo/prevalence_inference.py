@@ -228,17 +228,17 @@ for e_index in range(1, 6):
     posterior_samples_real = workflow.sample(conditions={'data': data_list}, num_samples=num_samples,
                                              batch_size=BATCH_SIZE)
 
-    # logging.info('Compute posterior modes...')
-    # posterior_mode = []
-    # for i in tqdm(range(n_test_data)):  # batch the data for log prob computation
-    #     batch = {
-    #         'data': np.repeat(data_list[i][None], num_samples, axis=0),
-    #         'prevalence_true': posterior_samples_real['prevalence_true'][i],
-    #         'prevalence_subsample': posterior_samples_real['prevalence_subsample'][i]
-    #     }
-    #     log_prob = workflow.log_prob(batch)
-    #     mode_idx = np.argmax(log_prob)
-    #     posterior_mode.append(batch['prevalence_true'][mode_idx].item())
+    logging.info('Compute posterior modes...')
+    posterior_mode = []
+    for i in tqdm(range(n_val_data)):  # batch the data for log prob computation
+        batch = {
+            'data': np.repeat(data_list[i][None], num_samples, axis=0),
+            'prevalence_true': posterior_samples_real['prevalence_true'][i],
+            'prevalence_subsample': posterior_samples_real['prevalence_subsample'][i]
+        }
+        log_prob = workflow.log_prob(batch)
+        mode_idx = np.argmax(log_prob)
+        posterior_mode.append(batch['prevalence_true'][mode_idx].item())
 
     results['unadjusted'][e_index-1] = error(
         np.array([pv['prevalence_subsample'] for pv in sim_out]),
@@ -249,8 +249,8 @@ for e_index in range(1, 6):
         np.array([pv['prevalence_true'] for pv in sim_out])
     )
     results['NPE'][e_index - 1] = error(
-        np.median(posterior_samples_real['prevalence_true'], axis=1).flatten(),
-        #np.array(posterior_mode),
+        #np.median(posterior_samples_real['prevalence_true'], axis=1).flatten(),
+        np.array(posterior_mode),
         np.array([pv['prevalence_true'] for pv in sim_out])
     )
     logging.info(f"Error NPE: {np.median(results['NPE'][e_index - 1])}")
