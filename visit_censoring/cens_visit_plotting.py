@@ -61,77 +61,9 @@ def plot_params(
     )
 
     # ------------------------------------------------------------
-    # 1) Beta rows (age, sex)
-    # ------------------------------------------------------------
-    for row_idx, beta in enumerate(beta_params):
-        for col_idx, e in enumerate(epochs):
-            this_ax = ax[row_idx, col_idx]
-
-            vals_naive = [baseline[e][f'beta{t}_{beta}']['naive_cox'] for t in transitions]
-            vals_weib = [baseline[e][f'beta{t}_{beta}']['weibull'] for t in transitions]
-            vals_spl = [baseline[e][f'beta{t}_{beta}']['splines'] for t in transitions]
-
-            x = np.arange(len(transitions))
-
-            this_ax.plot(x, vals_naive, marker='o', color=colors[0], linestyle='dotted', zorder=3,
-                         label='Naive Cox' if (row_idx == 0 and col_idx == 0) else None)
-            this_ax.plot(x, vals_weib, marker='o', color=colors[1], linestyle='dotted', zorder=4, alpha=0.75,
-                         label='Weibull IDM' if (row_idx == 0 and col_idx == 0) else None)
-            this_ax.plot(x, vals_spl, marker='o', color=colors[2], linestyle='dotted', zorder=4, alpha=0.75,
-                         label='Splines IDM' if (row_idx == 0 and col_idx == 0) else None)
-
-            # prior band (constant over transitions)
-            q = [prior_summary[f'beta{t}_{beta}'] for t in transitions]
-            if len(q) > 0:
-                this_ax.fill_between(
-                    x,
-                    [q[i]['low'] for i in range(len(transitions))],
-                    [q[i]['high'] for i in range(len(transitions))],
-                    color='black',
-                    alpha=0.15,
-                    label='Prior 95% interval' if (row_idx == 0 and col_idx == 0) else None,
-                    zorder=1,
-                )
-
-            # posterior band (epoch-specific)
-            q = [posterior_summary[f'beta{t}_{beta}'] for t in transitions]
-            if len(q) > 0:
-                this_ax.fill_between(
-                    x,
-                    [q[i]['low'][col_idx] for i in range(len(transitions))],
-                    [q[i]['high'][col_idx] for i in range(len(transitions))],
-                    color=colors[3],
-                    alpha=0.3,
-                    label='Posterior 95% interval' if (row_idx == 0 and col_idx == 0) else None,
-                    zorder=2,
-                )
-                this_ax.plot(
-                    x,
-                    [q[i]['median'][col_idx] for i in range(len(transitions))],
-                    linestyle='--',
-                    color=colors[3],
-                    label='Posterior median' if (row_idx == 0 and col_idx == 0) else None,
-                    zorder=5,
-                )
-
-            this_ax.set_xticks(x)
-            this_ax.set_xticklabels(transitions)
-            if col_idx == 0:
-                this_ax.set_ylabel(beta.replace('_', ' '))
-            if row_idx == 0:
-                this_ax.set_title(f'Epoch {e[-1]}')
-            else:
-                this_ax.set_xlabel('Transition')
-
-            # remove top and right spines
-            this_ax.spines['top'].set_visible(False)
-            this_ax.spines['right'].set_visible(False)
-
-    # ------------------------------------------------------------
-    # 2) Hazard rows (a01, a02, a12)
-    # ------------------------------------------------------------
+    # Hazard rows (a01, a02, a12)
     for h_idx, a_name in enumerate(hazard_params):
-        row = 2 + h_idx
+        row = h_idx
 
         trans = a_name[-2:]  # '01', '02', '12'
         a_key, shape_key = weibull_param_map[trans]
@@ -148,7 +80,7 @@ def plot_params(
             )
 
             # IDM curves
-            for b_i, b in enumerate(['idm_weib', 'idm_splines']):
+            for b_i, b in enumerate(['idm_weib']): #, 'idm_splines']):
                 t_days = baseline[e][f'{b}_times']
                 t_years = np.asarray(t_days) / 365.25
                 haz = baseline[e][f'{b}_{trans}']
@@ -215,9 +147,78 @@ def plot_params(
 
             this_ax.set_yscale('log')
             if col_idx == 0:
-                this_ax.set_ylabel(a_name)
-            if row == nrows - 1:
+                this_ax.set_ylabel(r'$a_{'+a_name[-2:]+'}$', fontsize=12)
+            if row == 0:
+                this_ax.set_title(f'Epoch {e[-1]}', fontsize=14)
+            elif row == nrows - 1:
                 this_ax.set_xlabel('Follow up years since entry in epoch')
+
+            # remove top and right spines
+            this_ax.spines['top'].set_visible(False)
+            this_ax.spines['right'].set_visible(False)
+
+
+    # ------------------------------------------------------------
+    # Beta rows (age, sex)
+    # ------------------------------------------------------------
+    for row_id, beta in enumerate(beta_params):
+        row_idx = row_id + 3  # after hazard rows
+        for col_idx, e in enumerate(epochs):
+            this_ax = ax[row_idx, col_idx]
+
+            vals_naive = [baseline[e][f'beta{t}_{beta}']['naive_cox'] for t in transitions]
+            vals_weib = [baseline[e][f'beta{t}_{beta}']['weibull'] for t in transitions]
+            # vals_spl = [baseline[e][f'beta{t}_{beta}']['splines'] for t in transitions]
+
+            x = np.arange(len(transitions))
+
+            this_ax.plot(x, vals_naive, marker='o', color=colors[0], linestyle='dotted', zorder=3,
+                         label='Naive Cox' if (row_idx == 0 and col_idx == 0) else None)
+            this_ax.plot(x, vals_weib, marker='o', color=colors[1], linestyle='dotted', zorder=4, alpha=0.75,
+                         label='Weibull IDM' if (row_idx == 0 and col_idx == 0) else None)
+            # this_ax.plot(x, vals_spl, marker='o', color=colors[2], linestyle='dotted', zorder=4, alpha=0.75,
+            #              label='Splines IDM' if (row_idx == 0 and col_idx == 0) else None)
+
+            # prior band (constant over transitions)
+            q = [prior_summary[f'beta{t}_{beta}'] for t in transitions]
+            if len(q) > 0:
+                this_ax.fill_between(
+                    x,
+                    [q[i]['low'] for i in range(len(transitions))],
+                    [q[i]['high'] for i in range(len(transitions))],
+                    color='black',
+                    alpha=0.15,
+                    label='Prior 95% interval' if (row_idx == 0 and col_idx == 0) else None,
+                    zorder=1,
+                )
+
+            # posterior band (epoch-specific)
+            q = [posterior_summary[f'beta{t}_{beta}'] for t in transitions]
+            if len(q) > 0:
+                this_ax.fill_between(
+                    x,
+                    [q[i]['low'][col_idx] for i in range(len(transitions))],
+                    [q[i]['high'][col_idx] for i in range(len(transitions))],
+                    color=colors[3],
+                    alpha=0.3,
+                    label='Posterior 95% interval' if (row_idx == 0 and col_idx == 0) else None,
+                    zorder=2,
+                )
+                this_ax.plot(
+                    x,
+                    [q[i]['median'][col_idx] for i in range(len(transitions))],
+                    linestyle='--',
+                    color=colors[3],
+                    label='Posterior median' if (row_idx == 0 and col_idx == 0) else None,
+                    zorder=5,
+                )
+
+            this_ax.set_xticks(x)
+            this_ax.set_xticklabels(transitions)
+            if col_idx == 0:
+                this_ax.set_ylabel(beta.replace('_', ' '), fontsize=12)
+            if row_idx == 3:
+                this_ax.set_xlabel('Transition', fontsize=12)
 
             # remove top and right spines
             this_ax.spines['top'].set_visible(False)
@@ -225,25 +226,26 @@ def plot_params(
 
     # ------------------------------------------------------------
     # Global legend
-    # ------------------------------------------------------------
     legend_handles = [
         Patch(facecolor=colors[0], label='Naive Cox'),
         Patch(facecolor=colors[1], alpha=0.75, label='Weibull IDM'),
-        Patch(facecolor=colors[2],  alpha=0.75, label='Splines IDM'),
-        Line2D([0], [0], color=colors[3], linestyle='--', label='Posterior median'),
-        Patch(facecolor=colors[3], alpha=0.3, label='Posterior 95% interval'),
+        # Patch(facecolor=colors[2],  alpha=0.75, label='Splines IDM'),
         Patch(facecolor='black', alpha=0.15, label='Prior 95% interval'),
+        Patch(facecolor=colors[3], alpha=0.3, label='Posterior 95% CI'),
+        Line2D([0], [0], color=colors[3], linestyle='--', label='Posterior median'),
     ]
 
     fig.legend(
         handles=legend_handles,
         loc='lower center',
-        bbox_to_anchor=(0.5, -0.06),
-        ncols=3,
+        bbox_to_anchor=(0.5, -0.05),
+        ncols=5,
+        frameon=False,
+        fontsize=12,
     )
 
     if save_path is not None:
-        fig.savefig(save_path / f'{network_name}_params.png', bbox_inches='tight')
+        fig.savefig(save_path / f'{network_name}_params.pdf', bbox_inches='tight')
         plt.close(fig)
     else:
         plt.show()
@@ -252,7 +254,7 @@ def plot_params(
 
 def plot_cumhaz(baseline, posterior_samples, df_real, network_name, per_person=100, adjust_cov=True, save_path=None):
     n_epochs = len(epochs)
-    fig, axes = plt.subplots(1, n_epochs, figsize=(3 * n_epochs, 4), layout='constrained', sharey=True)
+    fig, axes = plt.subplots(1, n_epochs, figsize=(1.5 * n_epochs, 2.5), layout='constrained', sharey=True)
 
     # Handle case of single epoch
     if n_epochs == 1:
@@ -313,12 +315,12 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, per_person=1
         )
         w_bar_weib = np.exp(np.mean(lp_weib))
 
-        # Splines IDM
-        lp_spl = (
-                baseline[e][age_coef_name]['splines'] * ages +
-                baseline[e][sex_coef_name]['splines'] * sexs
-        )
-        w_bar_spl = np.exp(np.mean(lp_spl))
+        # # Splines IDM
+        # lp_spl = (
+        #         baseline[e][age_coef_name]['splines'] * ages +
+        #         baseline[e][sex_coef_name]['splines'] * sexs
+        # )
+        # w_bar_spl = np.exp(np.mean(lp_spl))
 
         # Weibull IDM baseline hazard and cumulative hazard (epoch-local)
         t_weib = np.asarray(baseline[e]['idm_weib_times'])
@@ -329,14 +331,14 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, per_person=1
             h_weib_adj = h_weib_base
         H_weib_local = per_person * cumulative_trapz(t_weib, h_weib_adj)  # starts at 0
 
-        # Splines IDM
-        t_spl = np.asarray(baseline[e]['idm_splines_times'])
-        h_spl_base = np.asarray(baseline[e][f'idm_splines_{trans}'])
-        if adjust_cov:
-            h_spl_adj = h_spl_base * w_bar_spl
-        else:
-            h_spl_adj = h_spl_base
-        H_spl_local = per_person * cumulative_trapz(t_spl, h_spl_adj)
+        # # Splines IDM
+        # t_spl = np.asarray(baseline[e]['idm_splines_times'])
+        # h_spl_base = np.asarray(baseline[e][f'idm_splines_{trans}'])
+        # if adjust_cov:
+        #     h_spl_adj = h_spl_base * w_bar_spl
+        # else:
+        #     h_spl_adj = h_spl_base
+        # H_spl_local = per_person * cumulative_trapz(t_spl, h_spl_adj)
 
         # Naive Cox a01 (piecewise constant over epoch)
         h_naive_base = baseline[e][a01_param_name]['naive_cox']
@@ -352,7 +354,7 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, per_person=1
 
         # Convert to years for plotting
         t_weib_years = (t_weib - t_weib[0]) / 365
-        t_spl_years = (t_spl - t_spl[0]) / 365
+        # t_spl_years = (t_spl - t_spl[0]) / 365
         t_naive_years = (t_naive - t_naive[0]) / 365
 
         # Plot point estimates
@@ -360,8 +362,8 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, per_person=1
                 label='Naive Cox' if epoch_idx == 0 else None)
         ax.plot(t_weib_years, H_weib_local, color=colors[1],
                 label='Weibull IDM' if epoch_idx == 0 else None)
-        ax.plot(t_spl_years, H_spl_local, color=colors[2],
-                label='Splines IDM' if epoch_idx == 0 else None)
+        # ax.plot(t_spl_years, H_spl_local, color=colors[2],
+        #         label='Splines IDM' if epoch_idx == 0 else None)
 
         # ------------------------------------------------------------------
         # 2) Posterior cumulative hazard band (age/sex adjusted, epoch-specific)
@@ -414,21 +416,31 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, per_person=1
         # Only show ylabel on leftmost subplot
         if epoch_idx == 0:
             if adjust_cov:
-                ax.set_ylabel(r'Age and sex adjusted cumulative dementia hazard' + f'\nper {per_person} persons')
+                ax.set_ylabel('Cumulative dementia hazard\nage and sex adjusted' + f'\nper {per_person} persons')
             else:
                 ax.set_ylabel(f'Cumulative dementia hazard per {per_person} persons')
 
         # remove top and right spines
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
+        ax.grid(True)
+        ax.set_xticks([1, 2, 3, 4, 5])
+        ax.set_xlim(0, 5)
+        ax.set_ylim(0, None)
 
     fig.supxlabel('Follow up years since entry in epoch')
     # Single legend below the figure
-    handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc='lower center', ncol=3, bbox_to_anchor=(0.5, -0.15))
+    legend_handles = [
+        Patch(facecolor=colors[0], label='Naive Cox'),
+        Patch(facecolor=colors[1], alpha=0.75, label='Weibull IDM'),
+        # Patch(facecolor=colors[2],  alpha=0.75, label='Splines IDM'),
+        Patch(facecolor=colors[3], alpha=0.3, label='Posterior 95% CI'),
+        Line2D([0], [0], color=colors[3], linestyle='--', label='Posterior median'),
+    ]
+    fig.legend(handles=legend_handles, loc='lower center', ncol=4, bbox_to_anchor=(0.5, -0.15), frameon=False)
 
     if save_path is not None:
-        plt.savefig(save_path / f'{network_name}_{a01_param_name}_cumhaz_age_sex.png', bbox_inches='tight')
+        plt.savefig(save_path / f'{network_name}_{a01_param_name}_cumhaz_age_sex.pdf', bbox_inches='tight')
         plt.close(fig)
     else:
         plt.show()

@@ -15,14 +15,14 @@ import pandas as pd
 import keras
 import bayesflow as bf
 
-from visit_censoring.cens_visit_plotting import plot_params, plot_cumhaz
+from visit_censoring.cens_visit_plotting import plot_params, plot_cumhaz, colors
 from visit_censoring.cens_visit_helper import extract_batches_to_dict, compute_gamma_params
 
 try:
     BASE = Path(__file__).resolve().parent
 except NameError:
     BASE = Path('/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring')
-job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 1))
+job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', -1))
 n_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 10))
 partition = os.environ.get('SLURM_JOB_PARTITION', 'local')
 
@@ -220,6 +220,7 @@ if job_array_id == -1:  # test run
     summary_network = bf.networks.DeepSet(summary_dim=len(param_names))
     inference_network = bf.networks.CouplingFlow(depth=2)
     network_name = 'test'
+    training_data = {}
     for k, v in validation_data.items():
         training_data[k] = v[:100]
 elif job_array_id % 4 == 0:
@@ -253,11 +254,8 @@ else:
 
 if job_array_id > 3:
     network_name += '_full'
-    test_data = validation_data.copy()
     training_data = training_data_full
     validation_data = validation_data_full
-else:
-    test_data = validation_data
 
 model_path = BASE / 'models' / f'weibull_npe_model_{network_name}.keras'
 logging.info(model_path)
@@ -268,6 +266,9 @@ workflow = bf.BasicWorkflow(
     inference_network=inference_network,
 )
 # %%
+class HistoryClass(object):
+    def __init__(self, history_to_save):
+        self.history = history_to_save
 if not os.path.exists(model_path):
     history = workflow.fit_offline(
         data=training_data,
@@ -283,76 +284,80 @@ if not os.path.exists(model_path):
     logging.info(f"RMSE {diagnostics.loc['NRMSE'].mean()}")
     logging.info(f"Calibration Error {diagnostics.loc['Calibration Error'].mean()}")
 
-    class HistoryClass(object):
-        def __init__(self, history_to_save):
-            self.history = history_to_save
-
-    with open(BASE / 'models' / f'history_{network_name}', 'wb') as file:
+    with open(BASE / 'models' / f'history_{network_name}.pkl', 'wb') as file:
         model_history = HistoryClass(history.history)
         pickle.dump(model_history, file)
 else:
     workflow.approximator = keras.saving.load_model(filepath=model_path)
 
-    with open(BASE / 'models' / f'history_{network_name}', 'rb') as file:
-        workflow.history = pickle.load(file)
-    bf.diagnostics.loss(workflow.history)
-    plt.savefig(BASE / 'plots' / f'{network_name}_loss.png')
-    plt.close()
+    try:
+        with open(BASE / 'models' / f'history_{network_name}.pkl', 'rb') as file:
+            workflow.history = pickle.load(file)
+        bf.diagnostics.loss(workflow.history, val_color=colors[-1], train_color='black')
+        plt.savefig(BASE / 'plots' / f'{network_name}_loss.pdf', bbox_inches='tight')
+        plt.close()
+    except FileNotFoundError:
+        logging.info("No history file found.")
 
 # %%
-if test_data is not None:
-    logging.info('Validation diagnostics...')
-    if not os.path.exists(BASE / 'plots' / f'{network_name}_recovery.png'):
-        posterior_samples_valid = workflow.sample(conditions=validation_data, num_samples=1000,
-                                                  batch_size=BATCH_SIZE // 2)
-        fig = bf.diagnostics.recovery(posterior_samples_valid, validation_data, variable_names=param_names_pretty)
-        plt.savefig(BASE / 'plots' / f'{network_name}_recovery.png', bbox_inches='tight')
-        plt.close()
 
-        fig = bf.diagnostics.calibration_ecdf(posterior_samples_valid, validation_data, variable_names=param_names_pretty,
-                                              difference=True)
-        ax = fig.get_axes()
-        for a in ax:
-            a.set_ylim(-0.25, 0.25)
-        plt.savefig(BASE / 'plots' / f'{network_name}_ecdf.png', bbox_inches='tight')
-        plt.close()
+logging.info('Validation diagnostics...')
+if not os.path.exists(BASE / 'plots' / f'{network_name}_recovery.pdf'):
+    posterior_samples_valid = workflow.sample(conditions=validation_data, num_samples=1000,
+                                              batch_size=BATCH_SIZE // 2)
+    fig = bf.diagnostics.recovery(posterior_samples_valid, validation_data,
+                                  color=colors[-1] if not 'full' in network_name else colors[0],
+                                  variable_names=param_names_pretty)
+    plt.savefig(BASE / 'plots' / f'{network_name}_recovery.pdf', bbox_inches='tight')
+    plt.close()
 
-        _ = adapter.forward(validation_data)  # warm-up adapter
-        ps_valid_adapted = adapter.forward(posterior_samples_valid, strict=False)
-        valid_adapted = adapter.forward(validation_data, strict=False)
-        fig = bf.diagnostics.recovery(ps_valid_adapted, valid_adapted,
-                                      variable_names=[r'trans ' + p for p in param_names_pretty])
-        plt.savefig(BASE / 'plots' / f'{network_name}_recovery_adapted.png', bbox_inches='tight')
-        plt.close()
+    fig = bf.diagnostics.calibration_ecdf(posterior_samples_valid, validation_data,
+                                          variable_names=param_names_pretty,
+                                          rank_ecdf_color=colors[-1] if not 'full' in network_name else colors[0])
+    ax = fig.get_axes()
+    for a in ax:
+        a.set_ylim(-0.25, 0.25)
+    plt.savefig(BASE / 'plots' / f'{network_name}_ecdf.pdf', bbox_inches='tight')
+    plt.close()
 
-    logging.info('Prepare C2ST classifier')
-    embedded_data = []
-    for i in range(0, len(validation_data['dt']), BATCH_SIZE):
-        batch = {name: validation_data[name][i:i + BATCH_SIZE] for name in validation_data}
-        embedded_data_batch = workflow.approximator.summarize(batch)
-        embedded_data.append(embedded_data_batch)
-    embedded_data = np.vstack(embedded_data)
-    #embedded_data = workflow.approximator.summarize(validation_data)
-    target_params = np.concatenate([validation_data[name] for name in param_names], axis=-1)
-    targets = np.concatenate((target_params, embedded_data), axis=-1)
-    posterior_samples_test = workflow.sample(conditions=validation_data, num_samples=1,
-                                             batch_size=BATCH_SIZE // 2)
-    posterior_samples_test = np.concatenate([posterior_samples_test[k][:, 0]  for k in param_names], axis=-1)
-    estimates = np.concatenate((posterior_samples_test, embedded_data), axis=-1)
-    estimates_mean = np.mean(estimates, axis=0)
-    estimates_std = np.std(estimates, axis=0)
+    _ = adapter.forward(validation_data)  # warm-up adapter
+    ps_valid_adapted = adapter.forward(posterior_samples_valid, strict=False)
+    valid_adapted = adapter.forward(validation_data, strict=False)
+    fig = bf.diagnostics.recovery(ps_valid_adapted, valid_adapted, color=colors[-1],
+                                  variable_names=[r'trans ' + p for p in param_names_pretty])
+    plt.savefig(BASE / 'plots' / f'{network_name}_recovery_adapted.pdf', bbox_inches='tight')
+    plt.close()
 
-    logging.info('Train C2ST classifier')
-    c2st_results = bf.diagnostics.metrics.classifier_two_sample_test(
-        estimates=estimates,
-        targets=targets,
-        return_metric_only=False,
-        batch_size=BATCH_SIZE
-    )
-    logging.info(f'C2ST Accuracy: {c2st_results["score"]}')
-else:
-    c2st_results = None
-    estimates_mean, estimates_std = None, None
+logging.info('Prepare C2ST classifier')
+embedded_data = []
+for i in range(0, len(validation_data['dt']), BATCH_SIZE):
+    batch = {name: validation_data[name][i:i + BATCH_SIZE] for name in validation_data}
+    embedded_data_batch = workflow.approximator.summarize(batch)
+    embedded_data.append(embedded_data_batch)
+embedded_data = np.vstack(embedded_data)
+target_params = np.concatenate([validation_data[name] for name in param_names], axis=-1)
+targets = np.concatenate((target_params, embedded_data), axis=-1)
+posterior_samples_test = workflow.sample(conditions=validation_data, num_samples=1,
+                                         batch_size=BATCH_SIZE // 2)
+posterior_samples_test = np.concatenate([posterior_samples_test[k][:, 0]  for k in param_names], axis=-1)
+estimates = np.concatenate((posterior_samples_test, embedded_data), axis=-1)
+estimates_mean = np.mean(estimates, axis=0)
+estimates_std = np.std(estimates, axis=0)
+
+logging.info('Train C2ST classifier')
+c2st_results = bf.diagnostics.metrics.classifier_two_sample_test(
+    estimates=estimates,
+    targets=targets,
+    return_metric_only=False,
+    batch_size=BATCH_SIZE
+)
+logging.info(f'C2ST Accuracy: {c2st_results["score"]}')
+
+# Coupling Flow: 0.66
+# Flow Matching: 0.69
+# Diffusion Model: 0.65
+# Consistency Model: 0.56 (full: 0.57)
+
 
 # %%
 # read files
@@ -379,70 +384,6 @@ else:
     real_posterior_samples = workflow.sample(conditions=real_data_dict, num_samples=1000)
     with open(BASE / 'models' / f'posterior_samples_{network_name}.pkl', 'wb') as f:
         pickle.dump(real_posterior_samples, f)
-
-#%% apply C2ST
-if c2st_results is not None:
-    c2st_result_real = []
-    embedded_real_data = workflow.approximator.summarize(real_data_dict)
-    embedded_real_data = np.repeat(embedded_real_data[:, None], repeats=1000, axis=1)
-    for i in range(len(framingham_file_names)):
-        logging.info(f'Epoch {i+1} C2ST evaluation...')
-
-        posterior_samples_test = np.concatenate([real_posterior_samples[k][i] for k in param_names], axis=-1)
-        estimates_real = np.concatenate((posterior_samples_test, embedded_real_data[i]), axis=-1)
-        estimates_real = (estimates_real - estimates_mean) / estimates_std
-        scores = np.array([c.predict(estimates_real).flatten() for c in c2st_results['classifiers']])
-        scores = np.maximum(scores, 1 - scores)
-        c2st_result_real.append(np.mean(scores, axis=0))
-        logging.info(f'C2ST Accuracy: {np.median(c2st_result_real[-1])}')
-
-    bins = 20
-    norm = mcolors.Normalize(vmin=0.5, vmax=1.0)
-    cmap = mcolors.LinearSegmentedColormap.from_list(
-        "Reds_trunc",
-        plt.cm.Reds(np.linspace(0.1, 1.0, 256))
-    )
-    fig, ax = plt.subplots(nrows=len(param_names), ncols=4, sharey='row', sharex='row', figsize=(10, 12),
-                           layout='constrained')
-    for p_i, p_name in enumerate(param_names):
-        for epoch_idx in range(4):
-            # compute bin assignment
-            x = real_posterior_samples[p_name][epoch_idx].flatten()
-            counts, bin_edges = np.histogram(x, bins=bins, density=True)
-            bin_idx = np.digitize(x, bin_edges) - 1
-
-            # compute mean color per bin
-            bin_color = np.array([
-                np.median(c2st_result_real[epoch_idx][bin_idx == i]) if np.any(bin_idx == i) else 0
-                for i in range(bins)
-            ])
-
-            # plot histogram manually
-            for i in range(bins):
-                ax[p_i, epoch_idx].bar(
-                    bin_edges[i],
-                    counts[i],
-                    width=bin_edges[i + 1] - bin_edges[i],
-                    align="edge",
-                    color=cmap(norm(bin_color[i])),
-                    edgecolor=cmap(norm(bin_color[i]))
-                )
-
-            ax[p_i, epoch_idx].set_xlabel(param_names_pretty[p_i])
-            if epoch_idx == 0:
-                ax[p_i, epoch_idx].set_ylabel("Density")
-            if p_i == 0:
-                ax[p_i, epoch_idx].set_title(rf"Epoch {epoch_idx+1}")
-            # remove top and right spines
-            ax[p_i, epoch_idx].spines['top'].set_visible(False)
-            ax[p_i, epoch_idx].spines['right'].set_visible(False)
-
-    # add colorbar
-    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
-    sm.set_array([])
-    plt.colorbar(sm, ax=ax, label="Median C2ST Score", fraction=0.02)
-    plt.savefig(BASE / 'plots' / f'{network_name}_real_c2st_histograms.pdf', bbox_inches='tight')
-    plt.close()
 
 #%%
 logging.info('Summarize posterior samples...')
@@ -473,15 +414,89 @@ for k, vals in prior_samples.items():
         "high": np.quantile(vals, 0.975),
     }
 
-for i in range(len(framingham_file_names)):
-    logging.info(f'Epoch {i+1}')
-    for k, v in real_posterior_samples.items():
-        logging.info(f'{k} Median: {np.median(v, axis=1)[i].item()}, '
-                 f'Quantiles: {np.quantile(v, axis=1, q=[0.025, 0.975])[:, i].flatten()}')
+# for i in range(len(framingham_file_names)):
+#     logging.info(f'Epoch {i+1}')
+#     for k, v in real_posterior_samples.items():
+#         logging.info(f'{k} Median: {np.median(v, axis=1)[i].item()}, '
+#                  f'Quantiles: {np.quantile(v, axis=1, q=[0.025, 0.975])[:, i].flatten()}')
 
-#%%
+
 logging.info('Plot results...')
 plot_params(baseline, prior_samples, prior_summary, real_posterior_samples, posterior_summary, network_name, save_path=BASE / 'plots')
 plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, save_path=BASE / 'plots')
+
+#%% apply C2ST
+c2st_result_real = []
+embedded_real_data = workflow.approximator.summarize(real_data_dict)
+embedded_real_data = np.repeat(embedded_real_data[:, None], repeats=1000, axis=1)
+for i in range(len(framingham_file_names)):
+    logging.info(f'Epoch {i+1} C2ST evaluation...')
+
+    posterior_samples_test = np.concatenate([real_posterior_samples[k][i] for k in param_names], axis=-1)
+    estimates_real = np.concatenate((posterior_samples_test, embedded_real_data[i]), axis=-1)
+    estimates_real = (estimates_real - estimates_mean) / estimates_std
+    scores = np.array([c.predict(estimates_real).flatten() for c in c2st_results['classifiers']])
+    scores = np.maximum(scores, 1 - scores)
+    c2st_result_real.append(np.mean(scores, axis=0))
+    logging.info(f'C2ST Accuracy: {np.median(c2st_result_real[-1])}')
+
+bins = 20
+norm = mcolors.Normalize(vmin=0.5, vmax=1.0)
+cmap = mcolors.LinearSegmentedColormap.from_list(
+    "Reds_trunc",
+    plt.cm.Reds(np.linspace(0.1, 1.0, 256))
+)
+
+# plot only a01
+p_name = 'a01'
+fig, ax = plt.subplots(nrows=1, ncols=4, figsize=(10, 2), layout='constrained')
+for epoch_idx in range(4):
+    # compute bin assignment
+    x = real_posterior_samples[p_name][epoch_idx].flatten()
+    counts, bin_edges = np.histogram(x, bins=bins, density=True)
+    bin_idx = np.digitize(x, bin_edges) - 1
+
+    # compute mean color per bin
+    bin_color = np.array([
+        np.median(c2st_result_real[epoch_idx][bin_idx == i]) if np.any(bin_idx == i) else 0
+        for i in range(bins)
+    ])
+
+    # plot histogram manually
+    for i in range(bins):
+        ax[epoch_idx].bar(
+            bin_edges[i],
+            counts[i],
+            width=bin_edges[i + 1] - bin_edges[i],
+            align="edge",
+            color=cmap(norm(bin_color[i])),
+            edgecolor=cmap(norm(bin_color[i]))
+        )
+
+    if epoch_idx == 0:
+        ax[epoch_idx].set_ylabel(f"Density of {param_names_pretty[0]}", fontsize=11)
+    ax[epoch_idx].set_title(rf"Epoch {epoch_idx+1}", fontsize=11)
+    median_score = np.median(c2st_result_real[epoch_idx])
+    ax[epoch_idx].text(
+        0.95, 0.95,
+        f"Median C2ST={median_score:.2f}",
+        horizontalalignment='right',
+        verticalalignment='top',
+        transform=ax[epoch_idx].transAxes,
+        fontsize=9,
+        bbox=dict(facecolor="white", edgecolor="white", alpha=0.75)
+    )
+    # remove top and right spines
+    ax[epoch_idx].spines['top'].set_visible(False)
+    ax[epoch_idx].spines['right'].set_visible(False)
+    ax[epoch_idx].set_xlim(0, prior_summary[p_name]['high'])
+
+# add colorbar
+sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+sm.set_array([])
+plt.colorbar(sm, ax=ax, label="C2ST score\n(median over bins)", fraction=0.02)
+plt.savefig(BASE / 'plots' / f'{network_name}_real_c2st_histograms_{p_name}.pdf', bbox_inches='tight')
+plt.close()
+
 
 logging.info('Done.')
