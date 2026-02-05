@@ -415,6 +415,7 @@ for i, samples in enumerate(list(results_real.values())[:-1]):  # exclude C2ST
     for body in parts['bodies']:
         body.set_label(labels[i])
         break
+    logging.info(f"{labels[i]}: Median {np.median([samples[t].flatten()*100 for t in range(5)], axis=1)}%")
 
 ax.set_xticks(np.arange(5))
 ax.set_xticklabels([f'$R_1$\n(${round(missing_round[0], 2)}\%$)', f'$R_2$\n(${round(missing_round[1], 2)}\%$)',
