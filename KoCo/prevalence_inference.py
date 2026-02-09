@@ -174,9 +174,6 @@ else:
     try:
         with open(BASE / 'models' / f'history_{network_name}.pkl', 'rb') as file:
             workflow.history = pickle.load(file)
-        bf.diagnostics.loss(workflow.history, val_color=colors[-1], train_color='black')
-        plt.savefig(BASE / 'plots' / f'{network_name}_loss.pdf', bbox_inches='tight')
-        plt.close()
     except FileNotFoundError:
         logging.info("No history file found.")
 
@@ -481,7 +478,7 @@ for epoch_idx in range(1, 6):
 # add colorbar
 sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
 sm.set_array([])
-plt.colorbar(sm, ax=ax, label="C2ST Score\n(Median over Bin)")
+plt.colorbar(sm, ax=ax, label="C2ST Score\n(Median per Bin)")
 fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence_real_histograms.pdf', bbox_inches='tight')
 plt.show()
 

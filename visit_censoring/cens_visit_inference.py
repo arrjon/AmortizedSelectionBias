@@ -2,13 +2,13 @@
 import os
 os.environ['KERAS_BACKEND'] = 'jax'
 
-import json
+import logging
 import pickle
 from pathlib import Path
-import logging
-
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import json
+
 import numpy as np
 import pandas as pd
 
@@ -22,7 +22,7 @@ try:
     BASE = Path(__file__).resolve().parent
 except NameError:
     BASE = Path('/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring')
-job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', -1))
+job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 2))
 n_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 10))
 partition = os.environ.get('SLURM_JOB_PARTITION', 'local')
 
@@ -323,7 +323,8 @@ if not os.path.exists(BASE / 'plots' / f'{network_name}_recovery.pdf'):
     _ = adapter.forward(validation_data)  # warm-up adapter
     ps_valid_adapted = adapter.forward(posterior_samples_valid, strict=False)
     valid_adapted = adapter.forward(validation_data, strict=False)
-    fig = bf.diagnostics.recovery(ps_valid_adapted, valid_adapted, color=colors[-1],
+    fig = bf.diagnostics.recovery(ps_valid_adapted, valid_adapted,
+                                  color=colors[-1] if not 'full' in network_name else colors[0],
                                   variable_names=[r'trans ' + p for p in param_names_pretty])
     plt.savefig(BASE / 'plots' / f'{network_name}_recovery_adapted.pdf', bbox_inches='tight')
     plt.close()
@@ -423,7 +424,9 @@ for k, vals in prior_samples.items():
 
 logging.info('Plot results...')
 plot_params(baseline, prior_samples, prior_summary, real_posterior_samples, posterior_summary, network_name, save_path=BASE / 'plots')
-plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, save_path=BASE / 'plots')
+plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, trans='01', save_path=BASE / 'plots')
+plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, trans='02', save_path=BASE / 'plots')
+plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, trans='12', save_path=BASE / 'plots')
 
 #%% apply C2ST
 c2st_result_real = []

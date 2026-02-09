@@ -147,7 +147,7 @@ def plot_params(
 
             this_ax.set_yscale('log')
             if col_idx == 0:
-                this_ax.set_ylabel(r'$a_{'+a_name[-2:]+'}$', fontsize=12)
+                this_ax.set_ylabel(r'$h_{'+a_name[-2:]+'}$', fontsize=12)
             if row == 0:
                 this_ax.set_title(f'Epoch {e[-1]}', fontsize=14)
             elif row == nrows - 1:
@@ -252,7 +252,7 @@ def plot_params(
     return
 
 
-def plot_cumhaz(baseline, posterior_samples, df_real, network_name, per_person=100, adjust_cov=True, save_path=None):
+def plot_cumhaz(baseline, posterior_samples, df_real, network_name, trans='01', per_person=100, adjust_cov=True, save_path=None):
     n_epochs = len(epochs)
     fig, axes = plt.subplots(1, n_epochs, figsize=(1.5 * n_epochs, 2.5), layout='constrained', sharey=True)
 
@@ -260,7 +260,6 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, per_person=1
     if n_epochs == 1:
         axes = [axes]
 
-    trans = '01'
     age_coef_name = f'beta{trans}_age'
     sex_coef_name = f'beta{trans}_sex'
     a01_param_name = f'a{trans}'
@@ -415,10 +414,16 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, per_person=1
 
         # Only show ylabel on leftmost subplot
         if epoch_idx == 0:
-            if adjust_cov:
-                ax.set_ylabel('Cumulative dementia hazard\nage and sex adjusted' + f'\nper {per_person} persons')
+            if trans == '01':
+                label = 'Cumulative dementia hazard\n'
+            elif trans == '02':
+                label = 'Cumulative death hazard\n'
             else:
-                ax.set_ylabel(f'Cumulative dementia hazard per {per_person} persons')
+                label = 'Cumulative dementia/death\n hazard '
+            if adjust_cov:
+                ax.set_ylabel(f'{label}age and sex adjusted' + f'\nper {per_person} persons')
+            else:
+                ax.set_ylabel(f'{label} per {per_person} persons')
 
         # remove top and right spines
         ax.spines['top'].set_visible(False)

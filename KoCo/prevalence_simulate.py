@@ -16,7 +16,7 @@ hh_size_probs = {'household_1': 0.549, 'household_2': 0.226, 'household_34': 0.1
 country_probs = {0: 1-0.305, 1: 0.305} # 0=Germany, 1=other
 full_population_size = 1_561_720
 
-test_specificity_params = {  # (from Olbricht et al., 2020)
+test_specificity_params = {  # (from Olbricht et al., 2021)
     'specificity': 0.9972041,
     'sensitivity': 0.8860104
 }
