@@ -1,6 +1,7 @@
 #%%
 import os
 os.environ['KERAS_BACKEND'] = 'jax'
+
 from pathlib import Path
 import logging
 import numpy as np
@@ -201,17 +202,40 @@ targets = np.concatenate((validation_data['prevalence_true'], embedded_data), ax
 posterior_samples_test = workflow.sample(conditions=validation_data, num_samples=1,
                                          batch_size=BATCH_SIZE // 2)
 estimates = np.concatenate((posterior_samples_test['prevalence_true'][:, 0], embedded_data), axis=-1)
+estimates_mean = np.mean(estimates, axis=0)
+estimates_std = np.std(estimates, axis=0)
+estimates = (estimates - estimates_mean) / estimates_std
+targets = (targets - estimates_mean) / estimates_std
 logging.info('Train C2ST classifier')
 c2st_results = bf.diagnostics.metrics.classifier_two_sample_test(
     estimates=estimates,
     targets=targets,
     return_metric_only=False,
     batch_size=BATCH_SIZE,
+    standardize=False
 )
 logging.info(f'C2ST Accuracy: {c2st_results["score"]}')
 
+logging.info('Train C2ST random classifiers')
+c2st_results_random = []
+full_set = np.concatenate((estimates, targets), axis=0)
+for _ in range(10):
+    # permute all labels to create random classifier
+    np.random.shuffle(full_set)
+    estimates_random = full_set[:estimates.shape[0]]
+    targets_random = full_set[estimates.shape[0]:]
+
+    c2st_results_random.append(bf.diagnostics.metrics.classifier_two_sample_test(
+        estimates=estimates_random,
+        targets=targets_random,
+        return_metric_only=False,
+        batch_size=BATCH_SIZE,
+        cross_validation_splits=0,
+        validation_split=0.1,
+        standardize=False
+    ))
+
 #%%
-logging.getLogger('bayesflow').setLevel(logging.WARNING)
 def error(a, b):
     """Error in percentage points"""
     return np.abs(a - b)*100
@@ -350,9 +374,8 @@ results_real = {
     'C2ST': [],
 }
 missing_round = []
+c2st_result_real_random = []
 num_samples = 1000
-estimates_mean = np.mean(estimates, axis=0)
-estimates_std = np.std(estimates, axis=0)
 
 for e_index in range(1, 6):
     logging.info(f"\n--- Epoch T{e_index} ---")
@@ -385,8 +408,18 @@ for e_index in range(1, 6):
     estimates_real = (estimates_real - estimates_mean) / estimates_std
     scores = np.array([c.predict(estimates_real).flatten() for c in c2st_results['classifiers']])
     scores = np.maximum(scores, 1 - scores)
-    results_real['C2ST'].append(np.mean(scores, axis=0))
-    logging.info(f'C2ST Accuracy: {np.median(results_real["C2ST"][-1])}')
+    c2st_score = np.mean(scores, axis=0)
+    test_statistic = np.mean((c2st_score - 0.5) ** 2)
+    results_real['C2ST'].append(c2st_score)
+    logging.info(f'C2ST Accuracy: {np.mean(results_real["C2ST"][-1])}')
+
+    # apply random classifiers
+    scores_random = np.array([c['classifiers'][0].predict(estimates_real).flatten() for c in c2st_results_random])
+    scores_random = np.maximum(scores_random, 1 - scores_random)
+    test_statistic_random = np.mean((scores_random - 0.5) ** 2, axis=-1)
+    p_val = np.mean(test_statistic_random > test_statistic)
+    c2st_result_real_random.append((test_statistic, p_val))
+    logging.info(f'C2ST Statistic: {test_statistic}, p-value: {p_val}')
 
 #%%
 # Plot violin plot
@@ -442,7 +475,7 @@ for epoch_idx in range(1, 6):
 
     # compute mean color per bin
     bin_color = np.array([
-        np.median(results_real['C2ST'][epoch_idx-1][bin_idx == i]) if np.any(bin_idx == i) else 0
+        np.mean(results_real['C2ST'][epoch_idx-1][bin_idx == i]) if np.any(bin_idx == i) else 0
         for i in range(bins)
     ])
 
@@ -464,11 +497,11 @@ for epoch_idx in range(1, 6):
     # remove top and right spines
     ax[epoch_idx-1].spines['top'].set_visible(False)
     ax[epoch_idx-1].spines['right'].set_visible(False)
-    # plot median scores
-    median_score = np.median(results_real['C2ST'][epoch_idx-1])
+    # plot scores
+    m_score = np.mean(results_real['C2ST'][epoch_idx-1])
     ax[epoch_idx-1].text(
         0.95, 0.95,
-        f"Median C2ST={median_score:.2f}",
+        f"Mean C2ST={m_score:.2f}\np-value={c2st_result_real_random[epoch_idx-1][1]:.1f}",
         horizontalalignment='right',
         verticalalignment='top',
         transform=ax[epoch_idx-1].transAxes,
@@ -478,7 +511,7 @@ for epoch_idx in range(1, 6):
 # add colorbar
 sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
 sm.set_array([])
-plt.colorbar(sm, ax=ax, label="C2ST Score\n(Median per Bin)")
+cbar = fig.colorbar(sm, ax=ax.ravel().tolist(), label="C2ST score\n(mean per bin)", fraction=0.02)
 fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence_real_histograms.pdf', bbox_inches='tight')
 plt.show()
 
