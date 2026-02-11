@@ -5,6 +5,7 @@
 */models/
 */data/
 */archiv/
+/archiv/
 **.pickle
 **.pkl
 **npy

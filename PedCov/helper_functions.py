@@ -588,12 +588,12 @@ def sampling_parameter_cis_comparison(
                 )
 
     # styling
-    ax.axvline(x=1, ymax=0.81, color='grey', linestyle='--')
+    ax.grid(axis='x', linestyle='--', alpha=0.7)
     ax.set_yticks(range(n_pars))
     if param_dict is not None:
         ax.set_yticklabels(param_dict.values(), fontsize=12)
-    ax.set_xlabel(f"{variant.title()} parameter value")
-    ax.set_ylabel("Parameters")
+    ax.set_xlabel(f"{variant.title()} parameter value", fontsize=12)
+    ax.set_ylabel("Parameters", fontsize=12)
     if title:
         ax.set_title(title)
     ax.invert_yaxis()
@@ -602,16 +602,18 @@ def sampling_parameter_cis_comparison(
     ci_patches = [
         Patch(facecolor=str(0.8 - i*0.2), edgecolor='none', label=f"{level}% CI")
         for i, level in enumerate(alpha_sorted)
-    ]
+    ][::-1]
     variant_lines = [
         Patch(color=method_colors[i], label=name)
         for i, name in enumerate(methods.values())
-    ]
+    ][::-1]
     if show_legend:
         ax.legend(
             handles = ci_patches + variant_lines,
             bbox_to_anchor=(1,1),
-            frameon=False,
-            fontsize=12
+            frameon=True,
+            fontsize=12,
+            facecolor='white',
+            edgecolor='white',
         )
     return ax

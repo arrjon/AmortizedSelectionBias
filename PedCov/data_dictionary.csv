@@ -1,0 +1,23 @@
+Column;Name;Object;Class;Format;Comment;
+1;id_patient;Individual id;double;Number;;
+2;id_hh;Household id;character;"A character chain:
+Household number - variant of study (a, o) - recruitment process (p, r) * id of simulation
+[1-9]* - {a, o} - [a-z][1-50]";"p for pedcovid-like
+r for random";
+3;hh_size;Household size;double;Number;;
+4;date_sympt;Symptoms/detection date;double;"Number:
+30 is assigned to the first symptoms/detection of the household, dates for other individuals are assigned relatively
+1000 is assigned to individuals who are not infected";;
+5;infect_status;Infection status;double;"0: not infected
+1: infected and symptomatic
+2: infected and asymptomatic";;
+6;end_followup;End of household followup;double;"Number:
+Date is assigned relatively to symptoms/detection dates";Date of last visit;
+7;age;Age category;double;"0: <6 years old
+1: 6-11 years old
+2: >11 years old";;
+8;protected;Protection;double;"0: not protected
+1: protected";Protection is vaccination or past infection;
+9;variant;Variant of study;character;alpha or omicron;These are optional, and always identical for all individuals of a simulation;
+10;id_simu;N° of the simulation;double;Number (when I launch multiple simulations at a time, they have an id);;
+11;select_process;Recruitment method used;character;"Mostly ""pedcov-like"" or ""random""";;

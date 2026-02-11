@@ -9,7 +9,7 @@ os.environ['KERAS_BACKEND'] = 'jax'
 import logging
 import pickle
 from pathlib import Path
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from joblib import Parallel, delayed
 
@@ -19,6 +19,7 @@ import pandas as pd
 import keras
 import bayesflow as bf
 from bayesflow.utils.serialization import serializable
+from bayesflow.utils import filter_kwargs
 
 from PedCov.stan import get_stan_posterior
 from PedCov.helper_functions import list_of_dicts_to_dict_of_lists, normalize_household_data, sampling_parameter_cis_comparison
@@ -28,14 +29,14 @@ try:
     BASE = Path(__file__).resolve().parent
 except NameError:
     BASE = Path('/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/PedCov')
-job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', -1))
+job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 1))
 n_procs = int(os.environ.get('SLURM_CPUS_PER_TASK', 10))
 partition = os.environ.get('SLURM_JOB_PARTITION', 'local')
 batch_size = 64
 
 method_colors = ['#4B2E83', '#1B8A8F']
 
-if 'gpu' in partition:
+if 'gpu' in partition or 'intelsr' in partition:
     OutbreakSimulator = lambda variant: None
 else:
     from PedCov.simulator import OutbreakSimulator
@@ -44,9 +45,9 @@ variants = ['alpha', 'omicron']
 
 # name of the scenario, used for saving files
 if len(variants) == 2:
-    scenario_name = 'pedcov_both_variants'
+    scenario_name = 'pedcov'
 elif variants[0] == 'alpha':
-    scenario_name = f'pedcov'
+    scenario_name = f'pedcov_alpha'
 elif variants[0] == 'omicron':
     scenario_name = f'pedcov_omicron'
 else:
@@ -62,15 +63,15 @@ param_names = {  # comment out parameters that should not be estimated
     #'alpha': r'$\alpha$',
     'beta': r'$\beta$',
     'delta': r'$\delta$',
-    'mu_inf_SI': r'$\mu_\text{infectiousness}^\text{symptomatic Infant}$',
-    'mu_inf_SC': r'$\mu_\text{infectiousness}^\text{symptomatic Child}$',
-    'mu_inf_AI': r'$\mu_\text{infectiousness}^\text{asymptomatic Infant}$',
-    'mu_inf_AC': r'$\mu_\text{infectiousness}^\text{asymptomatic Child}$',
-    'mu_inf_AA': r'$\mu_\text{infectiousness}^\text{asymptomatic Adult}$',
-    'mu_susc_I': r'$\mu_\text{susceptibility}^\text{Infant}$',
-    'mu_susc_C': r'$\mu_\text{susceptibility}^\text{Child}$',
-    'mu_protect_acq': r'$\mu_\text{protect}^\text{acq}$',
-    'mu_protect_transm': r'$\mu_\text{protect}^\text{transm}$'
+    'mu_inf_SI': r'$\mu_\text{inf}^\text{sym Infant}$',
+    'mu_inf_SC': r'$\mu_\text{inf}^\text{sym Child}$',
+    'mu_inf_AI': r'$\mu_\text{inf}^\text{asym Infant}$',
+    'mu_inf_AC': r'$\mu_\text{inf}^\text{asym Child}$',
+    'mu_inf_AA': r'$\mu_\text{inf}^\text{asym Adult}$',
+    'mu_susc_I': r'$\mu_\text{sus}^\text{Infant}$',
+    'mu_susc_C': r'$\mu_\text{sus}^\text{Child}$',
+    'mu_protect_acq': r'$\mu_\text{pro}^\text{acq}$',
+    'mu_protect_transm': r'$\mu_\text{pro}^\text{transm}$'
 }
 
 full_name_list = ['alpha', 'beta', 'delta',
@@ -150,7 +151,6 @@ if not 'gpu' in partition:
 simulator_alpha = OutbreakSimulator(variant='alpha')
 simulator_omicron = OutbreakSimulator(variant='omicron')
 
-# %%
 #plot_incubation_distribution(simulator_alpha.shapeIncub, simulator_alpha.scaleIncub,
 #                             simulator_alpha.shapeIncubAsymp, simulator_alpha.scaleIncubAsymp)
 #plot_generation_time_distribution(simulator_alpha.shape_generation_time, simulator_alpha.scale_generation_time)
@@ -211,7 +211,7 @@ def simulate_single(generate_valid_data=False, selection_procedure_valid='all') 
     for p in full_name_list:
         out[p] = [out[p]]
     return out
-# %%
+
 # # test stan and simulations
 # # stan uses 4 cpus per job, so we can use 1/4 of the available cpus
 # test_data = Parallel(n_jobs=10 // 4, verbose=1)(simulate_single(generate_valid_data=True,
@@ -239,13 +239,13 @@ if os.path.exists(validation_data_file):
     except FileNotFoundError:
         training_data = None
 else:
-    training_data = Parallel(n_jobs=n_procs, verbose=1)(delayed(simulate_single()) for _ in range(batch_size * num_training_batches))
+    training_data = Parallel(n_jobs=n_procs, verbose=1)(delayed(simulate_single)() for _ in range(batch_size * num_training_batches))
     training_data = list_of_dicts_to_dict_of_lists(training_data)
     with open(training_data_file, 'wb') as f:
         pickle.dump(training_data, f)
 
     # stan uses 4 cpus per job, so we can use 1/4 of the available cpus
-    validation_data = Parallel(n_jobs=n_procs // 4, verbose=1)(delayed(simulate_single(generate_valid_data=True)) for _ in range(batch_size * num_validation_sets))
+    validation_data = Parallel(n_jobs=n_procs // 4, verbose=1)(delayed(simulate_single)(generate_valid_data=True) for _ in range(batch_size * num_validation_sets))
     validation_data = list_of_dicts_to_dict_of_lists(validation_data)
     for key in validation_data.keys():  # concatenate the validation data for the selection procedures
         validation_data[key] = np.concatenate(validation_data[key], axis=0)
@@ -321,6 +321,7 @@ if not 'gpu' in partition:
         # plt.show()
 
         fig = bf.diagnostics.calibration_ecdf(stan_posterior_samples, vd, variable_names=list(param_names.values()),
+                                              rank_ecdf_color=method_colors[0], label_fontsize=14,
                                               stacked=True, difference=True, figsize=(5, 3))
         ax = fig.get_axes()
         for i, a in enumerate(ax):
@@ -331,10 +332,12 @@ if not 'gpu' in partition:
                     line.remove()
                 line.set_color(parameter_colors[idx])
                 line.set_label(f'{list(param_names.values())[idx]}')
-            #a.legend(ncols=5, loc='lower center', bbox_to_anchor=(0.5, -0.9))
+            #a.legend(ncols=5, loc='lower center', bbox_to_anchor=(0.5, -0.5), frameon=False)
             a.set_ylim(-0.4, 0.4)
-            a.set_title(titles[vd['selection_procedure'][0]])
-            a.set_ylabel("MCMC ECDF Difference")
+            a.set_title(titles[vd['selection_procedure'][0]], fontsize=14)
+            a.set_ylabel("MCMC ECDF difference")
+            #a.set_ylabel("")
+            a.set_xlabel("")
         plt.tight_layout()
         fig.savefig(BASE / 'plots' / f'{scenario_name}_ecdf_stan_{vd["selection_procedure"][0]}.pdf', bbox_inches='tight')
         #fig.savefig(BASE / 'plots' / f'{scenario_name}_ecdf_legend.pdf', bbox_inches='tight')
@@ -384,11 +387,15 @@ else:
 
 @serializable("bayesflow.networks")
 class DoubleSummaryNetwork(bf.networks.SummaryNetwork):
-    def __init__(self, inner_network, outer_network, name=None, **kwargs):
+    def __init__(self, inner_network, outer_network, use_stats=False, name=None, **kwargs):
         super().__init__(**kwargs)
         self.name = 'inner_' + inner_network.name + '_outer_' + outer_network.name if name is None else name
         self.inner_network = inner_network  # operates over elements
         self.outer_network = outer_network  # operates over observations
+        self.use_stats = use_stats
+        self.use_mask = False
+        if 'transformer' in inner_network.name:
+            self.use_mask = True
 
     def call(self, x, training: bool = False, **kwargs):
         b_size, n_outer_obs, n_inner_obs = keras.ops.shape(x)[:3]
@@ -397,13 +404,23 @@ class DoubleSummaryNetwork(bf.networks.SummaryNetwork):
         x_flat = keras.ops.reshape(x, (b_size * n_outer_obs, n_inner_obs, *keras.ops.shape(x)[3:]))
 
         # Apply the inner network to each element in the outer observation
-        inner_output = self.inner_network(x_flat, training=training, **kwargs)
+        if self.use_mask:
+            member_mask = self._compute_member_mask(x_flat)
+            inner_output = self.inner_network(x_flat, training=training,
+                                              **filter_kwargs(kwargs | {"attention_mask": member_mask}, self.inner_network.call))
+        else:
+            inner_output = self.inner_network(x_flat, training=training, **filter_kwargs(kwargs, self.inner_network.call))
 
         # Reshape back to (b_size, n_outer_obs, inner_output_dim)
         inner_output = keras.ops.reshape(inner_output, (b_size, n_outer_obs, *keras.ops.shape(inner_output)[1:]))
 
         # Apply the outer network to the inner outputs
-        outer_output = self.outer_network(inner_output, training=training, **kwargs)
+        outer_output = self.outer_network(inner_output, training=training, **filter_kwargs(kwargs, self.outer_network.call))
+
+        if self.use_stats:
+            stats = self._compute_summary_stats(x)
+            combined = keras.ops.concatenate([outer_output, stats], axis=-1)
+            return combined
         return outer_output
 
 
@@ -411,39 +428,96 @@ class DoubleSummaryNetwork(bf.networks.SummaryNetwork):
         config = super().get_config()
         config.update({
             "inner_network": self.inner_network,
-            "outer_network": self.outer_network
+            "outer_network": self.outer_network,
+            "use_stats": self.use_stats
         })
         return config
 
-# %%
-summary_network = DoubleSummaryNetwork(
-    inner_network=bf.networks.TimeSeriesNetwork(summary_dim=len(param_names)*2, dropout=0.1, recurrent_dim=32),
-    outer_network=bf.networks.SetTransformer(summary_dim=len(param_names)*2, dropout=0.1),
-    name=f'transformer_time_series'
-)
+    @staticmethod
+    def _compute_member_mask(x, ignore_features_from_idx=11):
+        """Compute mask for valid household members (non-padding)"""
+        # Check if all features are zero for each member
+        feature_sum = keras.ops.sum(keras.ops.abs(x[..., :ignore_features_from_idx]), axis=-1)
 
+        # Mask is True where sum > epsilon for numerical stability
+        epsilon = 1e-8
+        mask_1d = feature_sum > epsilon
+
+        mask = keras.ops.logical_and(
+            keras.ops.expand_dims(mask_1d, axis=1),  # (B, 1, T)
+            keras.ops.expand_dims(mask_1d, axis=2)  # (B, S, 1)
+        )
+        return mask  # (B, T, S)
+
+    @staticmethod
+    def _compute_summary_stats(x):
+        """Compute informative summary statistics per batch"""
+        # x shape: (batch, households, 8, n_features)
+
+        # Extract key features (adjust indices to your data)
+        first_test_pos = x[..., 2]  # (batch, households, 8)
+        infection_status = x[..., 3]  # assuming this is binary
+
+        # Per-household statistics
+        attack_rate = keras.ops.mean(infection_status, axis=2)  # (batch, households)
+        infection_span = keras.ops.max(first_test_pos, axis=2) - keras.ops.min(first_test_pos, axis=2)
+
+        # Global statistics
+        stats = keras.ops.concatenate([
+            keras.ops.mean(attack_rate, axis=1, keepdims=True),  # mean attack rate
+            keras.ops.std(attack_rate, axis=1, keepdims=True),  # variation across households
+            keras.ops.mean(infection_span, axis=1, keepdims=True),
+            keras.ops.std(infection_span, axis=1, keepdims=True),
+        ], axis=-1)
+
+        return stats
+
+# %%
 if job_array_id == -1:
     EPOCHS = 2
+    summary_network = DoubleSummaryNetwork(
+        inner_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3),
+        outer_network=bf.networks.DeepSet(summary_dim=len(param_names) * 3, dropout=0.1),
+        use_stats=True,
+    )
     inference_network = bf.networks.CouplingFlow(depth=2)
     network_name = 'test'
+    training_data = {}
     for k, v in validation_data.items():
         training_data[k] = v[:100]
 elif job_array_id == 0:
     EPOCHS = 100
+    summary_network = DoubleSummaryNetwork(
+        inner_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3),
+        outer_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3, dropout=0.1),
+        name=f'transformer_transformer'
+    )
     inference_network = bf.networks.CouplingFlow(depth=7, subnet_kwargs={"dropout": 0.1}, transform='spline')
-    network_name = 'coupling_flow'
+    network_name = 'coupling_flow_tt'
+    # RMSE:
 elif job_array_id == 1:
-    EPOCHS = 500
+    EPOCHS = 300
+    summary_network = DoubleSummaryNetwork(
+        inner_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3),
+        outer_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3, dropout=0.1),
+        name=f'transformer_transformer'
+    )
     inference_network = bf.networks.FlowMatching(subnet_kwargs={"dropout": 0.1})
-    network_name = 'flow_matching'
+    network_name = 'flow_matching_tt'
+    # RMSE:
 elif job_array_id == 2:
-    EPOCHS = 500
-    inference_network = bf.networks.DiffusionModel(subnet_kwargs={"dropout": 0.1})
-    network_name = 'diffusion_model'
-elif job_array_id == 3:
-    EPOCHS = 500
-    inference_network = bf.networks.ConsistencyModel(EPOCHS*num_training_batches, subnet_kwargs={"dropout": 0.1})
-    network_name = 'consistency_model'
+    EPOCHS = 300
+    summary_network = DoubleSummaryNetwork(
+        inner_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3),
+        outer_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3, dropout=0.1),
+        name=f'transformer_transformer'
+    )
+    inference_network = bf.networks.DiffusionModel(
+        noise_schedule='cosine',
+        prediction_type='velocity'
+    )
+    network_name = 'diffusion_model_tt'
+    # RMSE:
 else:
     raise ValueError(f"Unknown job array id: {job_array_id}")
 
@@ -456,9 +530,18 @@ workflow = bf.BasicWorkflow(
     inference_network=inference_network
 )
 
-#%%
+#%%#
+class HistoryClass(object):
+    def __init__(self, history_to_save):
+        self.history = history_to_save
 if os.path.exists(model_path):
     workflow.approximator = keras.saving.load_model(filepath=model_path)
+
+    try:
+        with open(BASE / 'models' / f'history_{network_name}.pkl', 'rb') as file:
+            workflow.history = pickle.load(file)
+    except FileNotFoundError:
+        logging.info("No history file found.")
 else:
     history = workflow.fit_offline(
         data=training_data,
@@ -468,21 +551,38 @@ else:
     )
     workflow.approximator.save(filepath=model_path)
 
-diagnostics = workflow.compute_default_diagnostics(
-    test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=batch_size)
-)
-logging.info(f"RMSE {diagnostics.loc['NRMSE'].mean()}")
-logging.info(f"Calibration Error {diagnostics.loc['Calibration Error'].mean()}")
+    diagnostics = workflow.compute_default_diagnostics(
+        test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=batch_size)
+    )
+    logging.info(f"RMSE {diagnostics.loc['NRMSE'].mean()}")
+    logging.info(f"Calibration Error {diagnostics.loc['Calibration Error'].mean()}")
 
-diagnostics = workflow.plot_default_diagnostics(
-    test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=batch_size),
-)
-for diagnostic, fig_d in diagnostics.items():
-    fig_d.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_{diagnostic}.png', bbox_inches='tight')
+    with open(BASE / 'models' / f'history_{network_name}.pkl', 'wb') as file:
+        model_history = HistoryClass(history.history)
+        pickle.dump(model_history, file)
 
 #%%
-logging.info('Train a C2ST classifier')
-embedded_data = workflow.approximator.summarize(validation_data)
+diagnostics = workflow.plot_default_diagnostics(
+    test_data=validation_data, num_samples=500, approximator_kwargs=dict(batch_size=batch_size),
+    loss_kwargs=dict(val_color=method_colors[-1], train_color='black'),
+    recovery_kwargs=dict(color=method_colors[-1]),
+    calibration_ecdf_kwargs=dict(rank_ecdf_color=method_colors[-1]),
+    coverage_kwargs=dict(color=method_colors[-1]),
+    z_score_contraction_kwargs=dict(color=method_colors[-1]),
+    variable_names=list(param_names.values())
+)
+for diagnostic, fig_d in diagnostics.items():
+    fig_d.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_{diagnostic}.pdf', bbox_inches='tight')
+    plt.close(fig_d)
+
+#%%
+logging.info('Prepare C2ST classifier')
+embedded_data = []
+for i in range(0, len(validation_data['sim_data']), batch_size):
+    batch = {name: validation_data[name][i:i + batch_size] for name in validation_data}
+    embedded_data_batch = workflow.approximator.summarize(batch)
+    embedded_data.append(embedded_data_batch)
+embedded_data = np.vstack(embedded_data)
 target_params = np.concatenate([validation_data[k] for k in param_names], axis=-1)
 targets = np.concatenate((target_params, embedded_data), axis=-1)
 posterior_samples_test = workflow.sample(conditions=validation_data, num_samples=1, batch_size=batch_size)
@@ -490,13 +590,36 @@ posterior_samples_test = np.concatenate([posterior_samples_test[k][:, 0]  for k 
 estimates = np.concatenate((posterior_samples_test, embedded_data), axis=-1)
 estimates_mean = np.mean(estimates, axis=0)
 estimates_std = np.std(estimates, axis=0)
-
+estimates = (estimates - estimates_mean) / estimates_std
+targets = (targets - estimates_mean) / estimates_std
+logging.info("Train C2ST classifier")
 c2st_results = bf.diagnostics.metrics.classifier_two_sample_test(
     estimates=estimates,
     targets=targets,
-    return_metric_only=False
+    return_metric_only=False,
+    batch_size=batch_size,
+    standardize=False
 )
 logging.info(f'C2ST Accuracy: {c2st_results["score"]}')
+
+logging.info('Train C2ST random classifiers')
+c2st_results_random = []
+full_set = np.concatenate((estimates, targets), axis=0)
+for _ in range(10):
+    # permute all labels to create random classifier
+    np.random.shuffle(full_set)
+    estimates_random = full_set[:estimates.shape[0]]
+    targets_random = full_set[estimates.shape[0]:]
+
+    c2st_results_random.append(bf.diagnostics.metrics.classifier_two_sample_test(
+        estimates=estimates_random,
+        targets=targets_random,
+        return_metric_only=False,
+        batch_size=batch_size,
+        cross_validation_splits=0,
+        validation_split=0.1,
+        standardize=False
+    ))
 
 # %% Simulation Study on Validation Data
 for vd in [validation_data_random, validation_data_pedcov, validation_data_adultcov]:
@@ -516,6 +639,7 @@ for vd in [validation_data_random, validation_data_pedcov, validation_data_adult
     # plt.show()
 
     fig = bf.diagnostics.calibration_ecdf(posterior_samples, vd, variable_names=list(param_names.values()),
+                                          rank_ecdf_color=method_colors[-1], label_fontsize=14,
                                           stacked=True, difference=True, figsize=(5, 3))
     ax = fig.get_axes()
     for i, a in enumerate(ax):
@@ -527,8 +651,8 @@ for vd in [validation_data_random, validation_data_pedcov, validation_data_adult
             line.set_color(parameter_colors[idx])
             line.set_label(f'{list(param_names.values())[idx]}')
         a.set_ylim(-0.4, 0.4)
-        a.set_title(titles[vd['selection_procedure'][0]])
-        a.set_ylabel("NPE ECDF Difference")
+        a.set_title(titles[vd['selection_procedure'][0]], fontsize=14)
+        a.set_ylabel("NPE ECDF difference")
     plt.tight_layout()
     fig.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_ecdf_npe_{vd["selection_procedure"][0]}.pdf',
                 bbox_inches='tight')
@@ -544,7 +668,6 @@ for vd in [validation_data_random, validation_data_pedcov, validation_data_adult
 # test_df = simulator_omicron(**test_params, return_df=True)['sim_data_df']
 # test_df.to_csv(BASE / 'data' / 'test_data_omicron.txt', sep=' ', index=False)
 
-# %%
 # specify the PedCov path
 data_path_alpha = BASE / 'data' / 'real_data_alpha.txt'
 data_path_omicron = BASE / 'data' / 'real_data_omicron.txt'
@@ -613,8 +736,9 @@ else:
         }
 
 #%% NPE inference on real data
+c2st_result_real_random = []
 for variant in variants:
-    posterior_file = BASE / 'models' / f'{variant}_npe_posterior_samples.pkl'
+    posterior_file = BASE / 'models' / f'{variant}_{network_name}_npe_posterior_samples.pkl'
     if os.path.exists(posterior_file):
         # load results
         with open(posterior_file, 'rb') as f:
@@ -639,105 +763,114 @@ for variant in variants:
         estimates_real = (estimates_real - estimates_mean) / estimates_std
         scores = np.array([c.predict(estimates_real).flatten() for c in c2st_results['classifiers']])
         scores = np.maximum(scores, 1 - scores)
-        real_data_results[variant]['C2ST'] = np.mean(scores, axis=0)
-        logging.info(f'Real Data {variant} C2ST Accuracy: {np.median(real_data_results[variant]["C2ST"])}')
+        c2st_score = np.mean(scores, axis=0)
+        test_statistic = np.mean((c2st_score - 0.5) ** 2)
+        real_data_results[variant]['C2ST'] = c2st_score
+        logging.info(f'Real Data {variant} C2ST Accuracy: {np.mean(real_data_results[variant]["C2ST"])}')
+
+        # apply random classifiers
+        scores_random = np.array([c['classifiers'][0].predict(estimates_real).flatten() for c in c2st_results_random])
+        scores_random = np.maximum(scores_random, 1 - scores_random)
+        test_statistic_random = np.mean((scores_random - 0.5) ** 2, axis=-1)
+        p_val = np.mean(test_statistic_random > test_statistic)
+        c2st_result_real_random.append((test_statistic, p_val))
+        logging.info(f'C2ST Statistic: {test_statistic}, p-value: {p_val}')
 
         del prep_dict
         # save samples
-        # with open(posterior_file, 'wb') as f:  # todo: uncomment to save
-        #     pickle.dump(real_data_results, f)
+        #with open(posterior_file, 'wb') as f:
+        #    pickle.dump(real_data_results, f)
 
-# %%
-# # plot credible intervals for each parameter and each variant
-# for variant in variants:
-#     posterior_samples = np.stack([real_data_results[variant]['posterior_samples'][p][0, :, 0]
-#                                   for p in param_names.keys()], axis=-1)
-#     ax = sampling_parameter_cis(posterior_samples, alpha=[99, 95, 80], size=(7,3),
-#                                 param_names=list(param_names.values()), title=f"Real Data NPE Posterior CIs - {variant}")
-#     # add vertical line at 1 for the mu parameters
-#     ax.vlines(1, ymin=1.75, ymax=8.25, color='grey', linestyle='--')
-#     ax.set_title("")
-#     #ax.legend().remove()
-#     plt.savefig(BASE / 'plots' / f'{scenario_name}_real_CIs_{variant}.pdf', bbox_inches='tight')
-#     plt.show()
-#
-#     stan_posterior_samples = np.stack([real_data_results[variant]['stan_posterior_samples'][p][0, :, 0]
-#                                        for p in param_names.keys()], axis=-1)
-#     ax = sampling_parameter_cis(stan_posterior_samples, alpha=[99, 95, 80], size=(7,3),
-#                                 param_names=list(param_names.values()), title=f"Real Data STAN Posterior CIs - {variant}")
-#     # add vertical line at 1 for the mu parameters
-#     ax.vlines(1, ymin=1.75, ymax=8.25, color='grey', linestyle='--')
-#     ax.set_title("")
-#     ax.legend().remove()
-#     plt.savefig(BASE / 'plots' / f'{scenario_name}_real_stan_CIs_{variant}.pdf', bbox_inches='tight')
-#     plt.show()
-
-# %%
-for variant in variants:
-    ax = sampling_parameter_cis_comparison(
-        results=real_data_results[variant],
-        methods={'posterior_samples': 'NPE', 'stan_posterior_samples': 'MCMC'},
-        variant=variant,
-        param_dict=param_names,
-        alpha=[99, 95, 80],
-        size=(5, 4),
-        show_legend=True,
-        colors=method_colors[::-1]
-    )
-    ax.set_xlim(-3, 14)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    plt.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_real_CIs_{variant}.pdf', bbox_inches='tight')
+#%%
+if len(variants) == 2:
+    fig, axis = plt.subplots(ncols=len(variants), sharex=True, sharey=True,
+                             figsize=(7, 3.5), layout='constrained')
+    axis[0] = sampling_parameter_cis_comparison(
+            results=real_data_results['alpha'],
+            methods={'posterior_samples': 'NPE', 'stan_posterior_samples': 'MCMC'},
+            variant='alpha',
+            param_dict=param_names,
+            alpha=[99, 95, 80],
+            size=(5, 4),
+            show_legend=False,
+            colors=method_colors[::-1],
+            ax=axis[0]
+        )
+    axis[1] = sampling_parameter_cis_comparison(
+            results=real_data_results['omicron'],
+            methods={'posterior_samples': 'NPE', 'stan_posterior_samples': 'MCMC'},
+            variant='omicron',
+            param_dict=param_names,
+            alpha=[99, 95, 80],
+            size=(5, 4),
+            show_legend=True,
+            colors=method_colors[::-1],
+        ax=axis[1]
+        )
+    axis[1].set_ylabel("")
+    for ax in axis:
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+    fig.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_real_CIs.pdf', bbox_inches='tight')
     plt.show()
 
 #%% apply C2ST
-if c2st_results is not None:
-    bins = 20
-    norm = mcolors.Normalize(vmin=0.5, vmax=1.0)
-    cmap = mcolors.LinearSegmentedColormap.from_list(
-        "Reds_trunc",
-        plt.cm.Reds(np.linspace(0.1, 1.0, 256))
-    )
-    fig, ax = plt.subplots(nrows=len(param_names), ncols=len(variants), sharey='row', sharex='row', figsize=(10, 12),
-                           layout='constrained')
-    for p_i, (p_name, p_name_pretty) in enumerate(param_names.items()):
-        for v_i, variant in enumerate(variants):
-            # compute bin assignment
-            x = real_data_results[variant]['posterior_samples'][p_name].flatten()
-            counts, bin_edges = np.histogram(x, bins=bins, density=True)
-            bin_idx = np.digitize(x, bin_edges) - 1
+logging.info("Plotting C2ST histograms for real data")
+bins = 20
+norm = mcolors.Normalize(vmin=0.5, vmax=1.0)
+cmap = mcolors.LinearSegmentedColormap.from_list(
+    "Reds_trunc",
+    plt.cm.Reds(np.linspace(0.1, 1.0, 256))
+)
+fig, ax = plt.subplots(nrows=len(param_names), ncols=len(variants), sharey='row', sharex='row', figsize=(10, 12),
+                       layout='constrained')
+for p_i, (p_name, p_name_pretty) in enumerate(param_names.items()):
+    for v_i, variant in enumerate(variants):
+        # compute bin assignment
+        x = real_data_results[variant]['posterior_samples'][p_name].flatten()
+        counts, bin_edges = np.histogram(x, bins=bins, density=True)
+        bin_idx = np.digitize(x, bin_edges) - 1
 
-            # compute mean color per bin
-            bin_color = np.array([
-                np.median(real_data_results[variant]['C2ST'][bin_idx == i]) if np.any(bin_idx == i) else 0
-                for i in range(bins)
-            ])
+        # compute mean color per bin
+        bin_color = np.array([
+            np.mean(real_data_results[variant]['C2ST'][bin_idx == i]) if np.any(bin_idx == i) else 0
+            for i in range(bins)
+        ])
 
-            # plot histogram manually
-            for i in range(bins):
-                ax[p_i, v_i].bar(
-                    bin_edges[i],
-                    counts[i],
-                    width=bin_edges[i + 1] - bin_edges[i],
-                    align="edge",
-                    color=cmap(norm(bin_color[i])),
-                    edgecolor=cmap(norm(bin_color[i]))
-                )
+        # plot histogram manually
+        for i in range(bins):
+            ax[p_i, v_i].bar(
+                bin_edges[i],
+                counts[i],
+                width=bin_edges[i + 1] - bin_edges[i],
+                align="edge",
+                color=cmap(norm(bin_color[i])),
+                edgecolor=cmap(norm(bin_color[i]))
+            )
 
-            ax[p_i, v_i].set_xlabel(p_name_pretty)
-            if v_i == 0:
-                ax[p_i, v_i].set_ylabel("Density")
-            if p_i == 0:
-                ax[p_i, v_i].set_title(rf"Variant {variant}")
-            # remove top and right spines
-            ax[p_i, v_i].spines['top'].set_visible(False)
-            ax[p_i, v_i].spines['right'].set_visible(False)
+        ax[p_i, v_i].set_xlabel(p_name_pretty)
+        if v_i == 0:
+            ax[p_i, v_i].set_ylabel("Density")
+        if p_i == 0:
+            ax[p_i, v_i].set_title(rf"Variant {variant}")
+            m_score = np.mean(real_data_results[variant]['C2ST'])
+            ax[p_i, v_i].text(
+                0.95, 0.95,
+                f"Mean C2ST={m_score:.2f}\np-value={c2st_result_real_random[v_i][1]:.1f}",
+                horizontalalignment='right',
+                verticalalignment='top',
+                transform=ax[p_i, v_i].transAxes,
+                fontsize=9,
+            )
+        # remove top and right spines
+        ax[p_i, v_i].spines['top'].set_visible(False)
+        ax[p_i, v_i].spines['right'].set_visible(False)
 
-    # add colorbar
-    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
-    sm.set_array([])
-    plt.colorbar(sm, ax=ax, label="Median C2ST Score", fraction=0.02)
-    fig.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_real_c2st_histograms.pdf', bbox_inches='tight')
-    plt.show()
+# add colorbar
+sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+sm.set_array([])
+cbar = fig.colorbar(sm, ax=ax.ravel().tolist(), label="C2ST score (mean per bin)", fraction=0.02)
+fig.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_real_c2st_histograms.pdf', bbox_inches='tight')
+plt.show()
 
 logging.info("Done!")
