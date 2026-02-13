@@ -15,6 +15,7 @@ from joblib import Parallel, delayed
 
 import numpy as np
 import pandas as pd
+from scipy.stats import median_abs_deviation as mad
 
 import keras
 import bayesflow as bf
@@ -328,8 +329,8 @@ if not 'gpu' in partition:
             a.get_legend().remove()
             lines = a.get_lines()
             for idx, line in enumerate(lines):
-                if list(param_names.keys())[idx] in ['beta', 'delta']:
-                    line.remove()
+                #if list(param_names.keys())[idx] in ['beta', 'delta']:
+                #    line.remove()
                 line.set_color(parameter_colors[idx])
                 line.set_label(f'{list(param_names.values())[idx]}')
             #a.legend(ncols=5, loc='lower center', bbox_to_anchor=(0.5, -0.5), frameon=False)
@@ -756,30 +757,36 @@ for variant in variants:
         )
         real_data_results[variant]['posterior_samples'] = posterior_samples_real
 
-        embedded_real_data = workflow.approximator.summarize(prep_dict)
-        embedded_real_data = np.repeat(embedded_real_data, repeats=num_samples, axis=0)
-        posterior_samples_test = np.concatenate([posterior_samples_real[k][0] for k in param_names], axis=-1)
-        estimates_real = np.concatenate((posterior_samples_test, embedded_real_data), axis=-1)
-        estimates_real = (estimates_real - estimates_mean) / estimates_std
-        scores = np.array([c.predict(estimates_real).flatten() for c in c2st_results['classifiers']])
-        scores = np.maximum(scores, 1 - scores)
-        c2st_score = np.mean(scores, axis=0)
-        test_statistic = np.mean((c2st_score - 0.5) ** 2)
-        real_data_results[variant]['C2ST'] = c2st_score
-        logging.info(f'Real Data {variant} C2ST Accuracy: {np.mean(real_data_results[variant]["C2ST"])}')
-
-        # apply random classifiers
-        scores_random = np.array([c['classifiers'][0].predict(estimates_real).flatten() for c in c2st_results_random])
-        scores_random = np.maximum(scores_random, 1 - scores_random)
-        test_statistic_random = np.mean((scores_random - 0.5) ** 2, axis=-1)
-        p_val = np.mean(test_statistic_random > test_statistic)
-        c2st_result_real_random.append((test_statistic, p_val))
-        logging.info(f'C2ST Statistic: {test_statistic}, p-value: {p_val}')
+        # embedded_real_data = workflow.approximator.summarize(prep_dict)
+        # embedded_real_data = np.repeat(embedded_real_data, repeats=num_samples, axis=0)
+        # posterior_samples_test = np.concatenate([posterior_samples_real[k][0] for k in param_names], axis=-1)
+        # estimates_real = np.concatenate((posterior_samples_test, embedded_real_data), axis=-1)
+        # estimates_real = (estimates_real - estimates_mean) / estimates_std
+        # scores = np.array([c.predict(estimates_real).flatten() for c in c2st_results['classifiers']])
+        # scores = np.maximum(scores, 1 - scores)
+        # c2st_score = np.mean(scores, axis=0)
+        # test_statistic = np.mean((c2st_score - 0.5) ** 2)
+        # real_data_results[variant]['C2ST'] = c2st_score
+        # logging.info(f'Real Data {variant} C2ST Accuracy: {np.mean(real_data_results[variant]["C2ST"])}')
+        #
+        # # apply random classifiers
+        # scores_random = np.array([c['classifiers'][0].predict(estimates_real).flatten() for c in c2st_results_random])
+        # scores_random = np.maximum(scores_random, 1 - scores_random)
+        # test_statistic_random = np.mean((scores_random - 0.5) ** 2, axis=-1)
+        # p_val = np.mean(test_statistic_random > test_statistic)
+        # c2st_result_real_random.append((test_statistic, p_val))
+        # logging.info(f'C2ST Statistic: {test_statistic}, p-value: {p_val}')
 
         del prep_dict
         # save samples
         #with open(posterior_file, 'wb') as f:
         #    pickle.dump(real_data_results, f)
+        logging.info(f'Variant {variant} bias-aware NPE Posterior Samples:')
+        for k, v in posterior_samples_real.items():
+            logging.info(f'{k}: median={np.median(v):.3f}, mad={mad(v.flatten()):.3f}')
+        logging.info(f'Variant {variant} MCMC Posterior Samples:')
+        for k, v in real_data_results[variant]['stan_posterior_samples'].items():
+            logging.info(f'{k}: median={np.median(v):.3f}, mad={mad(v.flatten()):.3f}')
 
 #%%
 if len(variants) == 2:
@@ -787,7 +794,7 @@ if len(variants) == 2:
                              figsize=(7, 3.5), layout='constrained')
     axis[0] = sampling_parameter_cis_comparison(
             results=real_data_results['alpha'],
-            methods={'posterior_samples': 'NPE', 'stan_posterior_samples': 'MCMC'},
+            methods={'posterior_samples': 'Bias-aware NPE', 'stan_posterior_samples': 'MCMC'},
             variant='alpha',
             param_dict=param_names,
             alpha=[99, 95, 80],
@@ -798,7 +805,7 @@ if len(variants) == 2:
         )
     axis[1] = sampling_parameter_cis_comparison(
             results=real_data_results['omicron'],
-            methods={'posterior_samples': 'NPE', 'stan_posterior_samples': 'MCMC'},
+            methods={'posterior_samples': 'Bias-aware NPE', 'stan_posterior_samples': 'MCMC'},
             variant='omicron',
             param_dict=param_names,
             alpha=[99, 95, 80],

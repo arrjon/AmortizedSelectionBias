@@ -610,7 +610,7 @@ def sampling_parameter_cis_comparison(
     if show_legend:
         ax.legend(
             handles = ci_patches + variant_lines,
-            bbox_to_anchor=(1,1),
+            bbox_to_anchor=(0.5, 1),
             frameon=True,
             fontsize=12,
             facecolor='white',
