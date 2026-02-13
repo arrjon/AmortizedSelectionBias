@@ -295,31 +295,33 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, trans='01', 
         # subset data for this epoch
         df_e = df_real[df_real['epoch'] == e]
         ages = df_e['age'].to_numpy()
+        ages_mean = np.mean(ages)
         sexs = df_e['sex'].to_numpy()
+        sexs_mean = np.mean(sexs)
 
         # ------------------------------------------------------------------
         # 1) Age/sex-adjusted point curves: Naive Cox, Weibull IDM, Splines IDM
         # ------------------------------------------------------------------
         # Naive Cox
         lp_naive = (
-                baseline[e][age_coef_name]['naive_cox'] * ages +
-                baseline[e][sex_coef_name]['naive_cox'] * sexs
+                baseline[e][age_coef_name]['naive_cox'] * ages_mean +
+                baseline[e][sex_coef_name]['naive_cox'] * sexs_mean
         )
-        w_bar_naive = np.exp(np.mean(lp_naive))
+        w_bar_naive = np.exp(lp_naive)
 
         # Weibull IDM
         lp_weib = (
-                baseline[e][age_coef_name]['weibull'] * ages +
-                baseline[e][sex_coef_name]['weibull'] * sexs
+                baseline[e][age_coef_name]['weibull'] * ages_mean +
+                baseline[e][sex_coef_name]['weibull'] * sexs_mean
         )
-        w_bar_weib = np.exp(np.mean(lp_weib))
+        w_bar_weib = np.exp(lp_weib)
 
         # # Splines IDM
         # lp_spl = (
-        #         baseline[e][age_coef_name]['splines'] * ages +
-        #         baseline[e][sex_coef_name]['splines'] * sexs
+        #         baseline[e][age_coef_name]['splines'] * ages_mean +
+        #         baseline[e][sex_coef_name]['splines'] * sexs_mean
         # )
-        # w_bar_spl = np.exp(np.mean(lp_spl))
+        # w_bar_spl = np.exp(lp_spl)
 
         # Weibull IDM baseline hazard and cumulative hazard (epoch-local)
         t_weib = np.asarray(baseline[e]['idm_weib_times'])
@@ -380,8 +382,8 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, trans='01', 
 
             h_post_samples = np.empty((n_samp_post, t_grid_e.size))
             for k in range(n_samp_post):
-                lp_k = beta_age_post_epoch[k] * ages + beta_sex_post_epoch[k] * sexs
-                w_bar_k = np.exp(np.mean(lp_k))
+                lp_k = beta_age_post_epoch[k] * ages_mean + beta_sex_post_epoch[k] * sexs_mean
+                w_bar_k = np.exp(lp_k)
 
                 h_k = weibull_hazard(t_grid_e, a_samp_epoch[k], shape_samp_epoch[k])
                 if adjust_cov:
