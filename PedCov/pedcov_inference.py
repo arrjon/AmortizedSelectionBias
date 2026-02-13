@@ -329,8 +329,8 @@ if not 'gpu' in partition:
             a.get_legend().remove()
             lines = a.get_lines()
             for idx, line in enumerate(lines):
-                #if list(param_names.keys())[idx] in ['beta', 'delta']:
-                #    line.remove()
+                if list(param_names.keys())[idx] in ['beta', 'delta']:
+                    line.remove()
                 line.set_color(parameter_colors[idx])
                 line.set_label(f'{list(param_names.values())[idx]}')
             #a.legend(ncols=5, loc='lower center', bbox_to_anchor=(0.5, -0.5), frameon=False)
