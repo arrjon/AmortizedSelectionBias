@@ -757,30 +757,30 @@ for variant in variants:
         )
         real_data_results[variant]['posterior_samples'] = posterior_samples_real
 
-        # embedded_real_data = workflow.approximator.summarize(prep_dict)
-        # embedded_real_data = np.repeat(embedded_real_data, repeats=num_samples, axis=0)
-        # posterior_samples_test = np.concatenate([posterior_samples_real[k][0] for k in param_names], axis=-1)
-        # estimates_real = np.concatenate((posterior_samples_test, embedded_real_data), axis=-1)
-        # estimates_real = (estimates_real - estimates_mean) / estimates_std
-        # scores = np.array([c.predict(estimates_real).flatten() for c in c2st_results['classifiers']])
-        # scores = np.maximum(scores, 1 - scores)
-        # c2st_score = np.mean(scores, axis=0)
-        # test_statistic = np.mean((c2st_score - 0.5) ** 2)
-        # real_data_results[variant]['C2ST'] = c2st_score
-        # logging.info(f'Real Data {variant} C2ST Accuracy: {np.mean(real_data_results[variant]["C2ST"])}')
-        #
-        # # apply random classifiers
-        # scores_random = np.array([c['classifiers'][0].predict(estimates_real).flatten() for c in c2st_results_random])
-        # scores_random = np.maximum(scores_random, 1 - scores_random)
-        # test_statistic_random = np.mean((scores_random - 0.5) ** 2, axis=-1)
-        # p_val = np.mean(test_statistic_random > test_statistic)
-        # c2st_result_real_random.append((test_statistic, p_val))
-        # logging.info(f'C2ST Statistic: {test_statistic}, p-value: {p_val}')
+        embedded_real_data = workflow.approximator.summarize(prep_dict)
+        embedded_real_data = np.repeat(embedded_real_data, repeats=num_samples, axis=0)
+        posterior_samples_test = np.concatenate([posterior_samples_real[k][0] for k in param_names], axis=-1)
+        estimates_real = np.concatenate((posterior_samples_test, embedded_real_data), axis=-1)
+        estimates_real = (estimates_real - estimates_mean) / estimates_std
+        scores = np.array([c.predict(estimates_real).flatten() for c in c2st_results['classifiers']])
+        scores = np.maximum(scores, 1 - scores)
+        c2st_score = np.mean(scores, axis=0)
+        test_statistic = np.mean((c2st_score - 0.5) ** 2)
+        real_data_results[variant]['C2ST'] = c2st_score
+        logging.info(f'Real Data {variant} C2ST Accuracy: {np.mean(real_data_results[variant]["C2ST"])}')
+
+        # apply random classifiers
+        scores_random = np.array([c['classifiers'][0].predict(estimates_real).flatten() for c in c2st_results_random])
+        scores_random = np.maximum(scores_random, 1 - scores_random)
+        test_statistic_random = np.mean((scores_random - 0.5) ** 2, axis=-1)
+        p_val = np.mean(test_statistic_random > test_statistic)
+        c2st_result_real_random.append((test_statistic, p_val))
+        logging.info(f'C2ST Statistic: {test_statistic}, p-value: {p_val}')
 
         del prep_dict
         # save samples
-        #with open(posterior_file, 'wb') as f:
-        #    pickle.dump(real_data_results, f)
+        with open(posterior_file, 'wb') as f:
+            pickle.dump(real_data_results, f)
         logging.info(f'Variant {variant} bias-aware NPE Posterior Samples:')
         for k, v in posterior_samples_real.items():
             logging.info(f'{k}: median={np.median(v):.3f}, mad={mad(v.flatten()):.3f}')

@@ -44,66 +44,19 @@ param_names_pretty = [r'$a_{01}$', r'$a_{02}$', r'$a_{12}$',
 with open(BASE / 'baseline.json') as f:
     _baseline = json.load(f)
 
-naive_estimates = {
-    'epoch1': {
-        'a01': 0.0015/50,
-        'a02': 0.0015/50,
-        'a12': 0.04/50
-    },
-    'epoch2': {
-        'a01': 0.002/50,
-        'a02': 0.0002/50,
-        'a12': 0.05/50
-    },
-    'epoch3': {
-        'a01': 0.002/50,
-        'a02': 0.0002/50,
-        'a12': 0.04/50
-    },
-    'epoch4': {
-        'a01': 0.002/50,
-        'a02': 0.0002/50,
-        'a12': 0.04/50
-    }
-}
-
 baseline = {e: {} for e in epochs}
 for e in epochs:
     baseline[e] = _baseline[e]
     b = _baseline[f'coefs_{e}']
     for p in params_beta:
         for k in b:
-            if (k['_row'] == f"{p[4:].split('_')[1]}_{p[4:].split('_')[0]}" or
-                k['_row'] == f"{p[4:].split('_')[1]}Centered_{p[4:].split('_')[0]}"):
+            if (k['row'] == f"{p[4:].split('_')[1]}_{p[4:].split('_')[0]}" or
+                k['row'] == f"{p[4:].split('_')[1]}Centered_{p[4:].split('_')[0]}"):
                 baseline[e][p] = {
                     'naive_cox': k['naive_cox'],
                     'weibull': k['idm_weib'],
                     'splines': k['idm_splines']
                 }
-
-    baseline[e].update({
-        'a01': {'naive_cox': naive_estimates[e]['a01']},
-        'a02': {'naive_cox': naive_estimates[e]['a02']},
-        'a12': {'naive_cox': naive_estimates[e]['a12']}
-    })
-
-# compute mean and sd over all epochs
-beta = {}
-a = {}
-for epoch in epochs:
-    for key in ['beta01_age', 'beta02_age', 'beta12_age', 'beta01_sex', 'beta02_sex', 'beta12_sex']:
-        age = baseline[epoch][key]['naive_cox']
-        if key not in beta:
-            beta[key] = []
-        beta[key].append(age)
-    for key in ['a01', 'a02', 'a12']:
-        if key not in a:
-            a[key] = []
-        a[key].append(baseline[epoch][key]['naive_cox'])
-for key in beta.keys():
-    beta[key] = np.mean(beta[key]), np.std(beta[key])
-for key in a.keys():
-    a[key] = np.mean(a[key]), np.std(a[key])
 
 # Framingham epoch priors
 cv = 1.0
@@ -111,10 +64,11 @@ std_min = 1.0
 shape_mean = 1.0  # exponential as baseline
 shape_cv = 0.25
 shape_params = compute_gamma_params(shape_mean, cv=shape_cv)
+a_mean = 0.0003
 priors = {
-    'a01': compute_gamma_params(np.mean([a['a01'][0], a['a02'][0], a['a12'][0]]), cv=cv),
-    'a02': compute_gamma_params(np.mean([a['a01'][0], a['a02'][0], a['a12'][0]]), cv=cv),
-    'a12': compute_gamma_params(np.mean([a['a01'][0], a['a02'][0], a['a12'][0]]), cv=cv),
+    'a01': compute_gamma_params(a_mean, cv=cv),
+    'a02': compute_gamma_params(a_mean, cv=cv),
+    'a12': compute_gamma_params(a_mean, cv=cv),
     'shape01': shape_params,
     'shape02': shape_params,
     'shape12': shape_params,

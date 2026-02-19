@@ -72,11 +72,22 @@ def plot_params(
             this_ax = ax[row, col_idx]
 
             # Naive Cox reference
-            this_ax.axhline(
-                baseline[e][a_name]['naive_cox'],
+            # this_ax.axhline(
+            #     baseline[e][a_name]['naive_cox'],
+            #     color=colors[0],
+            #     label='Naive Cox' if (row == 2 and col_idx == 0) else None,
+            #     zorder=3,
+            # )
+            t_days = baseline[e][f'naive_cox_times_{trans}']
+            t_years = np.asarray(t_days) / 365.25
+            haz = baseline[e][f'naive_cox_{trans}']
+
+            this_ax.plot(
+                t_years,
+                haz,
                 color=colors[0],
                 label='Naive Cox' if (row == 2 and col_idx == 0) else None,
-                zorder=3,
+                zorder=3, alpha=0.75,
             )
 
             # IDM curves
@@ -330,7 +341,7 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, trans='01', 
             h_weib_adj = h_weib_base * w_bar_weib
         else:
             h_weib_adj = h_weib_base
-        H_weib_local = per_person * cumulative_trapz(t_weib, h_weib_adj)  # starts at 0
+        h_weib_local = per_person * cumulative_trapz(t_weib, h_weib_adj)  # starts at 0
 
         # # Splines IDM
         # t_spl = np.asarray(baseline[e]['idm_splines_times'])
@@ -341,27 +352,35 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, trans='01', 
         #     h_spl_adj = h_spl_base
         # H_spl_local = per_person * cumulative_trapz(t_spl, h_spl_adj)
 
-        # Naive Cox a01 (piecewise constant over epoch)
-        h_naive_base = baseline[e][a01_param_name]['naive_cox']
+        # Naive Cox a01
+        t_cox = np.asarray(baseline[e][f'naive_cox_times_{trans}'])
+        h_cox_base = np.asarray(baseline[e][f'naive_cox_{trans}'])
         if adjust_cov:
-            h_naive_adj = h_naive_base * w_bar_naive
+            h_cox_adj = h_cox_base * w_bar_naive
         else:
-            h_naive_adj = h_naive_base
-        t_naive = t_weib
-        H_naive_local = per_person * cumulative_trapz(
-            t_naive,
-            np.full_like(t_naive, h_naive_adj, dtype=float),
-        )
+            h_cox_adj = h_cox_base
+        h_naive_local = per_person * cumulative_trapz(t_cox, h_cox_adj)  # starts at 0
+
+        # h_naive_base = baseline[e][a01_param_name]['naive_cox']
+        # if adjust_cov:
+        #     h_naive_adj = h_naive_base * w_bar_naive
+        # else:
+        #     h_naive_adj = h_naive_base
+        # t_naive = t_weib
+        # H_naive_local = per_person * cumulative_trapz(
+        #     t_naive,
+        #     np.full_like(t_naive, h_naive_adj, dtype=float),
+        # )
 
         # Convert to years for plotting
         t_weib_years = (t_weib - t_weib[0]) / 365
         # t_spl_years = (t_spl - t_spl[0]) / 365
-        t_naive_years = (t_naive - t_naive[0]) / 365
+        t_naive_years = (t_cox - t_cox[0]) / 365
 
         # Plot point estimates
-        ax.plot(t_naive_years, H_naive_local, color=colors[0],
+        ax.plot(t_naive_years, h_naive_local, color=colors[0],
                 label='Naive Cox' if epoch_idx == 0 else None)
-        ax.plot(t_weib_years, H_weib_local, color=colors[1],
+        ax.plot(t_weib_years, h_weib_local, color=colors[1],
                 label='Weibull IDM' if epoch_idx == 0 else None)
         # ax.plot(t_spl_years, H_spl_local, color=colors[2],
         #         label='Splines IDM' if epoch_idx == 0 else None)
