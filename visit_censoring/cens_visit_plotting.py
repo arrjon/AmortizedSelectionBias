@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
@@ -300,6 +301,9 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, trans='01', 
     # ----------------------------------------------------------------------
     # Create one subplot per epoch
     # ----------------------------------------------------------------------
+    naive_trend = []
+    weib_trend = []
+    npe_trend = []
     for epoch_idx, e in enumerate(epochs):
         ax = axes[epoch_idx]
 
@@ -373,17 +377,20 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, trans='01', 
         # )
 
         # Convert to years for plotting
+        t_naive_years = (t_cox - t_cox[0]) / 365
         t_weib_years = (t_weib - t_weib[0]) / 365
         # t_spl_years = (t_spl - t_spl[0]) / 365
-        t_naive_years = (t_cox - t_cox[0]) / 365
 
         # Plot point estimates
         ax.plot(t_naive_years, h_naive_local, color=colors[0],
                 label='Naive Cox' if epoch_idx == 0 else None)
+        naive_trend.append(h_naive_local[-1])
         ax.plot(t_weib_years, h_weib_local, color=colors[1],
                 label='Weibull IDM' if epoch_idx == 0 else None)
+        weib_trend.append(h_weib_local[-1])
         # ax.plot(t_spl_years, H_spl_local, color=colors[2],
         #         label='Splines IDM' if epoch_idx == 0 else None)
+        #logging.info(f"Epoch {e}: H(5y) splines={H_spl_local[-1]:.4g} per {per_person}")
 
         # ------------------------------------------------------------------
         # 2) Posterior cumulative hazard band (age/sex adjusted, epoch-specific)
@@ -399,21 +406,22 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, trans='01', 
             mask = t_local <= epoch_len
             t_grid_e = t_local[mask]
 
-            h_post_samples = np.empty((n_samp_post, t_grid_e.size))
+            h_base_post_samples = np.empty((n_samp_post, t_grid_e.size))
             for k in range(n_samp_post):
                 lp_k = beta_age_post_epoch[k] * ages_mean + beta_sex_post_epoch[k] * sexs_mean
                 w_bar_k = np.exp(lp_k)
 
                 h_k = weibull_hazard(t_grid_e, a_samp_epoch[k], shape_samp_epoch[k])
                 if adjust_cov:
-                    h_post_samples[k, :] = h_k * w_bar_k
+                    h_base_post_samples[k, :] = h_k * w_bar_k
                 else:
-                    h_post_samples[k, :] = h_k
+                    h_base_post_samples[k, :] = h_k
 
-            H_post_samples = per_person * cumulative_trapz_samples(t_grid_e, h_post_samples)
-            med_e = np.median(H_post_samples, axis=0)
-            low_e = np.quantile(H_post_samples, 0.025, axis=0)
-            high_e = np.quantile(H_post_samples, 0.975, axis=0)
+            h_post_samples = per_person * cumulative_trapz_samples(t_grid_e, h_base_post_samples)
+            med_e = np.median(h_post_samples, axis=0)
+            low_e = np.quantile(h_post_samples, 0.025, axis=0)
+            high_e = np.quantile(h_post_samples, 0.975, axis=0)
+            npe_trend.append(h_post_samples[:, -1])
 
             t_grid_years = t_grid_e / 365
             ax.plot(
@@ -470,4 +478,16 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, trans='01', 
         plt.close(fig)
     else:
         plt.show()
+
+    # print trends at 5 years for each method
+    x = np.arange(len(epochs))
+    logging.info(f"Trends at 5 years (per {per_person}):")
+    logging.info(f'Naive Cox: {np.polyfit(x, naive_trend, 1)[0]}')
+    logging.info(f'Weibull IDM: {np.polyfit(x, weib_trend, 1)[0]}')
+    if has_posterior:
+        trend = []
+        for i in range(npe_trend[0].shape[0]):
+            y = [trend_epoch[i] for trend_epoch in npe_trend]
+            trend.append(np.polyfit(x, y, 1)[0])
+        logging.info(f'Posterior: {np.median(trend)} (95% CI {np.quantile(trend, 0.025)}, {np.quantile(trend, 0.975)})')
     return
