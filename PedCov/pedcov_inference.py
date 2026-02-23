@@ -23,7 +23,8 @@ from bayesflow.utils.serialization import serializable
 from bayesflow.utils import filter_kwargs
 
 from PedCov.stan import get_stan_posterior
-from PedCov.helper_functions import list_of_dicts_to_dict_of_lists, normalize_household_data, sampling_parameter_cis_comparison
+from PedCov.helper_functions import (list_of_dicts_to_dict_of_lists, normalize_household_data,
+                                     sampling_parameter_cis_comparison, plot_first_positive_age_group_counts)
 
 
 try:
@@ -146,7 +147,7 @@ def plot_priors(n_samples=10000):
 
 # Execute the plot function
 if not 'gpu' in partition:
-    plot_priors()
+    pass #plot_priors()
     #meta(), prior("alpha")
 
 simulator_alpha = OutbreakSimulator(variant='alpha')
@@ -299,9 +300,9 @@ parameter_colors = [  # colorblind safe colors
 ]
 
 titles = {
-    'random': 'Random Selection Procedure',
-    'pedcov': 'Child Selection Procedure',
-    'adultcov': 'Adult Selection Procedure'
+    'random': 'Random selection procedure',
+    'pedcov': 'Child selection procedure',
+    'adultcov': 'Adult selection procedure'
 }
 
 if not 'gpu' in partition:
@@ -735,6 +736,15 @@ else:
             'variant_id': [0] if variant == 'alpha' else [1],  # 0 for alpha, 1 for omicron
             'stan_posterior_samples': stan_posterior_samples
         }
+
+#%%
+plot_first_positive_age_group_counts(
+    [validation_data_random, validation_data_pedcov, validation_data_adultcov],
+    colors=method_colors+['#D64A62'],
+    labels=['Random Selection', 'Child selection', 'Adult selection'],
+    real_data=real_data_results,
+    save_path=BASE / "plots" / "first_positive_age_group_counts.pdf",
+)
 
 #%% NPE inference on real data
 c2st_result_real_random = []

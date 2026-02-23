@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Dict, List, Union
+from collections import Counter
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -270,61 +271,6 @@ def normalize_household_data(
 
     except Exception as e:
         raise ValueError(f"Error processing household PedCov: {e}")
-
-
-def get_household_statistic(data: np.ndarray) -> dict:
-    """
-    Get the number of infections by household size, age group, and infection status.
-    """
-    from collections import defaultdict
-
-    # Initialize counters
-    infection_counts = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
-    time_distribution = defaultdict(lambda: defaultdict(list))
-    time_distribution_age = defaultdict(lambda: defaultdict(list))
-
-    # Iterate through each household
-    for household in data:
-        household_members = household[:, 0] != 0
-        household = household[household_members][:-1]  # remove follow-up date
-        household_size = household.shape[0]
-        infection_times = household[:, 0]
-        infection_statuses = household[:, 1:3]
-        infection_statuses = np.where(infection_statuses.sum(axis=1) == 0, 0, infection_statuses.argmax(axis=1) + 1)
-        age_group = household[:, 3:5]
-        age_group = np.where(age_group.sum(axis=1) == 0, 0, age_group.argmax(axis=1) + 1)
-        protection_status = household[:, 5]
-
-        for i in range(household_size):
-            # Update the count based on household size, age group, and protection status
-            infection_counts[household_size][age_group[i]][infection_statuses[i]] += 1
-
-            # Record the infection time for distribution analysis
-            time_distribution[household_size][infection_statuses[i]].append(infection_times[i])
-            time_distribution_age[household_size][age_group[i]].append(infection_times[i])
-
-    infection_counts = pd.DataFrame(infection_counts)
-    time_distribution = pd.DataFrame(time_distribution)
-    time_distribution_age = pd.DataFrame(time_distribution_age)
-
-    # change index
-    age_index = ['<6 years', '6-11 years', '>11 years']
-    status_index = ['not_infected', 'infected_symptomatic', 'infected_asymptomatic']
-    infection_counts.index = [age_index[i] for i in infection_counts.index]
-    infection_counts = infection_counts.reindex(age_index)  # reorder
-
-    time_distribution.index = [status_index[i] for i in time_distribution.index]
-    time_distribution = time_distribution.reindex(status_index)  # reorder
-    time_distribution_age.index = [age_index[i] for i in time_distribution_age.index]
-    time_distribution_age = time_distribution_age.reindex(age_index)  # reorder
-
-    out_dict = {
-        'infection_counts': infection_counts,
-        'time_distribution': time_distribution,
-        'time_distribution_age': time_distribution_age,
-        'household_sizes': sorted(time_distribution_age.columns)
-    }
-    return out_dict
 
 
 # plot delay distribution
@@ -617,3 +563,205 @@ def sampling_parameter_cis_comparison(
             edgecolor='white',
         )
     return ax
+
+
+def count_households_first_pos(
+        real_data_results,
+        sim_key: str = "sim_data",
+        feature_idx_first_pos: int = 2,
+        feature_idx_age_group: int = 6,
+) -> dict:
+    """
+    Counts (non-padded) households per variant and which age group had the
+    earliest positive test in each household.
+
+    Expected household tensor layout per household row (member):
+      0  date_sympt_norm
+      1  last_test_neg_norm
+      2  first_test_pos_norm
+      3  infect_status_onehot[0], not infected status
+      4  infect_status_onehot[1], symptomatic status
+      5  infect_status_onehot[2], asymptomatic status
+      6  age_group   (0=INFANT, 1=CHILD, 2=OLDER)
+      7  protected
+      8  age_exact_norm
+      9  hh_size
+      10 end_followup_norm
+
+    sim_data can be:
+      - (n_households, n_members, n_features)
+      - (n_batches, n_households, n_members, n_features)
+    """
+
+    out = {}
+
+    def _is_padding_member(row: np.ndarray) -> bool:
+        # Padding rows are all zeros
+        if np.allclose(row, 0.0):
+            return True
+        return False
+
+    def _is_padding_household(hh: np.ndarray) -> bool:
+        # Household is padded if all members are padding rows
+        return all(_is_padding_member(member) for member in hh)
+
+
+    data_dict = real_data_results.copy()
+    flat_data = False
+    if "variant" in data_dict:
+        flat_data = True
+
+    if flat_data:
+        data_dict = {}
+        if 'alpha' in real_data_results['variant']:
+            data_dict['alpha'] = {'sim_data': real_data_results['sim_data'][real_data_results['variant'] == 'alpha']}
+        if 'omicron' in real_data_results['variant']:
+            data_dict['omicron'] = {'sim_data': real_data_results['sim_data'][real_data_results['variant'] == 'omicron']}
+
+    for variant, data in data_dict.items():
+        if sim_key not in data:
+            raise KeyError(f"Variant '{variant}' missing key '{sim_key}'")
+
+        sim_data = np.asarray(data[sim_key])
+
+        if sim_data.ndim == 3:
+            all_households = sim_data[None]  # (1, n_households, n_members, n_features)
+        elif sim_data.ndim == 4:
+            all_households = sim_data  # (n_batches, n_households, n_members, n_features)
+        else:
+            raise ValueError(f"sim_data for variant '{variant}' has unsupported ndim={sim_data.ndim}")
+
+        out[variant] = {
+            "n_households": [],
+            "first_positive_age_group_counts": [],
+        }
+        for households in all_households:
+            counts = Counter()
+            n_valid_households = 0
+
+            for hh in households:
+                if _is_padding_household(hh):
+                    continue  # exclude fully padded households
+
+                n_valid_households += 1
+
+                first_pos = np.inf
+                first_age_group = None
+                first_member = None
+
+                for member in hh:
+                    if _is_padding_member(member):
+                        continue
+
+                    t = member[feature_idx_first_pos]
+
+                    if t < first_pos:
+                        first_pos = t
+                        first_age_group = int(member[feature_idx_age_group])
+                        first_member = member
+                    elif t == first_pos:
+                        # tie-breaking: if two members have the same first positive time, we check for symptomatic status
+                        # if one is symptomatic and the other is asymptomatic, we prioritize the symptomatic one as first positive
+                        if member[4] == 1 and first_member[4] == 0:
+                            first_age_group = int(member[feature_idx_age_group])
+                            first_member = member
+                        elif member[4] == 0 and first_member[4] == 1:
+                            # keep the existing first positive as it is symptomatic
+                            pass
+                        else:
+                            # take the younger one
+                            if member[8] < first_member[8]:  # compare age_exact_norm
+                                first_age_group = int(member[feature_idx_age_group])
+                                first_member = member
+
+                if first_age_group is None:
+                    counts['no_pos'] += 1
+                else:
+                    counts[first_age_group] += 1
+
+            # ensure keys exist
+            age_group_counts = {0: 0, 1: 0, 2: 0}
+            for k, v in counts.items():
+                age_group_counts[k] = int(v)
+
+            out[variant]["n_households"].append(n_valid_households)
+            out[variant]["first_positive_age_group_counts"].append(age_group_counts)
+
+            assert np.sum(list(age_group_counts.values())) == n_valid_households, f"Variant '{variant}': sum of age group counts {age_group_counts.values().sum()} does not match number of valid households {n_valid_households}"
+
+    for variant, data in data_dict.items():
+        out[variant]['first_positive_age_group_counts'] = list_of_dicts_to_dict_of_lists(out[variant]['first_positive_age_group_counts'])
+        assert all(np.array(out[variant]['n_households']) == out[variant]['n_households'][0]), f"Variant '{variant}': number of households varies across batches: {out[variant]['n_households']}"
+        out[variant]['n_households'] = out[variant]['n_households'][0]
+    return out
+
+#%%
+def plot_first_positive_age_group_counts(
+        list_sim: list[dict], colors: list[str], labels: list[str],
+        real_data: dict = None, save_path = None
+):
+
+    first_positive_dicts = [count_households_first_pos(data) for data in list_sim]
+
+    if real_data is not None:
+        real_data = count_households_first_pos(real_data)
+
+    fig, ax = plt.subplots(ncols=1, nrows=len(first_positive_dicts[0]), figsize=(5, 4),
+                           sharey=True, sharex=True, layout='constrained')
+    ax = ax.flatten()
+    width = 0.2
+    offsets = np.linspace(-width, width, len(first_positive_dicts))
+    age_groups = ['Infant', 'Child', 'Adult']
+    for i, first_positive_dict in enumerate(first_positive_dicts):
+        for a, (variant, data) in zip(ax, first_positive_dict.items()):
+            counts = data['first_positive_age_group_counts']
+            parts = a.violinplot(
+                np.array([counts[0], counts[1], counts[2]]).T / data['n_households'],
+                positions=np.arange(len(age_groups)) + offsets[i],
+                widths=0.15,
+                showmeans=False,
+                showmedians=True,
+                showextrema=False,
+            )
+            a.set_ylabel(f"{variant}".title(), fontsize=10)
+            # Label each set of violin bodies for legend
+            for body in parts['bodies']:
+                body.set_color(colors[i])
+            parts['cmedians'].set_color(colors[i])
+            if variant == 'alpha':
+                for body in parts['bodies']:
+                    body.set_label(labels[i])
+                    break
+
+    for a in ax:
+        a.spines['top'].set_visible(False)
+        a.spines['right'].set_visible(False)
+        a.grid(axis='y')
+        a.set_ylim(0, None)
+        a.set_xticks(np.arange(len(age_groups)))
+        a.set_xticklabels(age_groups, fontsize=10)
+
+    if real_data is not None:
+        for a, (variant, _) in zip(ax, first_positive_dicts[0].items()):
+            real_counts = real_data[variant]['first_positive_age_group_counts']
+            a.scatter(
+                np.arange(len(age_groups)),
+                np.array([real_counts[0], real_counts[1], real_counts[2]]) / real_data[variant]['n_households'],
+                color='black',
+                marker='x',
+                s=75,
+                label='Real Data' if variant == 'alpha' else None,
+                zorder=3
+            )
+
+    fig.supylabel("Fraction of age group with first positive", fontsize=10)
+
+    handles, labels = ax[0].get_legend_handles_labels()
+    # move the real data handle to the second row
+    handles = [handles[0], handles[-1]] + handles[1:-1]
+    fig.legend(handles=handles, loc='lower center', bbox_to_anchor=(0.5, -0.15), ncols=3, frameon=False, fontsize=10)
+    if save_path is not None:
+        plt.savefig(save_path, bbox_inches='tight')
+        plt.close(fig)
+    else:
+        plt.show()
