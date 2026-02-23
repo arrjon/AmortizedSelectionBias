@@ -424,7 +424,7 @@ for e_index in range(1, 6):
 #%%
 # Plot violin plot
 fig, ax = plt.subplots(figsize=(5, 2), layout='constrained')
-width = 0.15
+width = 0.2
 offsets = [-width, 0, width]
 labels = ['Unadjusted', 'Weighted', 'Bias-aware NPE']
 
@@ -433,7 +433,7 @@ for i, samples in enumerate(list(results_real.values())[:-1]):  # exclude C2ST
     parts = ax.violinplot(
         [samples[t].flatten()*100 for t in range(5)],
         positions=pos,
-        widths=width,
+        widths=0.15,
         showmeans=False,
         showmedians=True,
         showextrema=False,
@@ -448,14 +448,16 @@ for i, samples in enumerate(list(results_real.values())[:-1]):  # exclude C2ST
     logging.info(f"{labels[i]}: Median {np.median([samples[t].flatten()*100 for t in range(5)], axis=1)}%")
 
 ax.set_xticks(np.arange(5))
-ax.set_xticklabels([f'$R_1$\n(${round(missing_round[0], 2)}\%$)', f'$R_2$\n(${round(missing_round[1], 2)}\%$)',
-                    f'$R_3$\n(${round(missing_round[2], 2)}\%$)', f'$R_4$\n(${round(missing_round[3], 2)}\%$)',
-                    f'$R_5$\n(${round(missing_round[4], 2)}\%$)'])
-ax.set_xlabel(r'Round (Missingness in $\%$)')
-ax.set_ylabel(r'Prevalence ($\%$)')
+ax.set_xticklabels([f'$R_1$', f'$R_2$',
+                    f'$R_3$', f'$R_4$',
+                    f'$R_5$'])
+ax.set_xlabel(r'KoCo19 Round')
+ax.set_ylabel('Estimated\nPrevalence'+r' ($\%$)')
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
-ax.grid(axis='y', alpha=0.7)
+ax.grid(axis='y')
+ax.set_ylim(0, None)
+fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.15), frameon=False)
 fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence_real.pdf', bbox_inches='tight')
 plt.show()
 

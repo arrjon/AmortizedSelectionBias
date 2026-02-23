@@ -1,4 +1,4 @@
-# %%
+# %%  uv pip install "git+https://github.com/bayesflow-org/bayesflow.git@5156f63"
 import os
 os.environ['KERAS_BACKEND'] = 'jax'
 
@@ -15,14 +15,14 @@ import pandas as pd
 import keras
 import bayesflow as bf
 
-from visit_censoring.cens_visit_plotting import plot_params, plot_cumhaz, colors
+from visit_censoring.cens_visit_plotting import plot_params, plot_cumhaz, colors, plot_params_error, plot_hazard_nrmse, plot_data_summaries
 from visit_censoring.cens_visit_helper import extract_batches_to_dict, compute_gamma_params
 
 try:
     BASE = Path(__file__).resolve().parent
 except NameError:
     BASE = Path('/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring')
-job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 2))
+job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 2))  # 2, 6
 n_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 10))
 partition = os.environ.get('SLURM_JOB_PARTITION', 'local')
 
@@ -30,6 +30,7 @@ if 'gpu' in partition or 'intelsr' in partition:
     simulate_all_epochs = lambda: 0
 else:
     from visit_censoring.cens_visit_simulate import simulate_all_epochs
+posterior_samples_model = {}
 
 # %%
 epochs = ["epoch1", "epoch2", "epoch3", "epoch4"]
@@ -208,8 +209,6 @@ else:
 
 if job_array_id > 3:
     network_name += '_full'
-    training_data = training_data_full
-    validation_data = validation_data_full
 
 model_path = BASE / 'models' / f'weibull_npe_model_{network_name}.keras'
 logging.info(model_path)
@@ -224,6 +223,11 @@ class HistoryClass(object):
     def __init__(self, history_to_save):
         self.history = history_to_save
 if not os.path.exists(model_path):
+
+    if 'full' in network_name:
+        training_data = training_data_full
+        validation_data = validation_data_full
+
     history = workflow.fit_offline(
         data=training_data,
         epochs=EPOCHS,
@@ -252,6 +256,40 @@ else:
         plt.close()
     except FileNotFoundError:
         logging.info("No history file found.")
+
+#%%
+logging.info('Compare models...')
+if network_name not in posterior_samples_model:
+    # custom plot for recovery for multiple models
+    posterior_samples_valid = workflow.sample(conditions=validation_data, num_samples=1000,
+                                              batch_size=BATCH_SIZE // 2)
+    posterior_samples_model[f'{network_name}'] = posterior_samples_valid
+
+    if 'full' in network_name:
+        posterior_samples_valid = workflow.sample(conditions=validation_data_full, num_samples=1000,
+                                                  batch_size=BATCH_SIZE // 2)
+        posterior_samples_model[f'{network_name}-uncensored'] = posterior_samples_valid
+
+if len(posterior_samples_model) == 3:
+    labels_dict = {
+        'ConsistencyModel_SetTransformer': ('Bias-aware NPE (Censored Data)', colors[-1]),
+        'ConsistencyModel_SetTransformer_full': ('NPE (Censored Data)', colors[0]),
+        'ConsistencyModel_SetTransformer_full-uncensored': ('NPE (Uncensored Data)', colors[2])
+    }
+    labels = [labels_dict[m][0] for m in posterior_samples_model]
+    colors_ordered = [labels_dict[m][1] for m in posterior_samples_model]
+    plot_params_error(
+        posterior_samples_model,
+        validation_data, validation_data_full,
+        labels, param_names, param_names_pretty, colors_ordered,
+        save_path=BASE / 'plots' / f'recovery_boxplot.pdf'
+    )
+    plot_hazard_nrmse(
+        posterior_samples_model,
+        validation_data, validation_data_full,
+        labels_dict,
+        save_path=BASE / 'plots' / f'hazard_nrmse.pdf'
+    )
 
 # %%
 logging.info('Validation diagnostics...')
@@ -362,6 +400,9 @@ else:
     with open(BASE / 'models' / f'posterior_samples_{network_name}.pkl', 'wb') as f:
         pickle.dump(real_posterior_samples, f)
 
+plot_data_summaries(df_real, save_path=BASE / 'plots' / 'transition_sankey.svg')
+
+
 #%%
 logging.info('Summarize posterior samples...')
 posterior_summary = {}
@@ -400,9 +441,10 @@ for k, vals in prior_samples.items():
 
 logging.info('Plot results...')
 plot_params(baseline, prior_samples, prior_summary, real_posterior_samples, posterior_summary, network_name, save_path=BASE / 'plots')
-plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, trans='01', save_path=BASE / 'plots')
-plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, trans='02', save_path=BASE / 'plots')
-plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, trans='12', save_path=BASE / 'plots')
+plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, transition='01', save_path=BASE / 'plots')
+plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, transition='02', save_path=BASE / 'plots')
+plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, transition='12', save_path=BASE / 'plots')
+plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, transition='all', save_path=BASE / 'plots')
 
 #%% apply C2ST
 c2st_result_real = []
