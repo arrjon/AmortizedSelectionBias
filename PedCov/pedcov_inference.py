@@ -737,7 +737,6 @@ else:
             'stan_posterior_samples': stan_posterior_samples
         }
 
-#%%
 plot_first_positive_age_group_counts(
     [validation_data_random, validation_data_pedcov, validation_data_adultcov],
     colors=method_colors+['#D64A62'],
@@ -801,8 +800,8 @@ for variant in variants:
 #%%
 if len(variants) == 2:
     fig, axis = plt.subplots(ncols=len(variants), sharex=True, sharey=True,
-                             figsize=(7, 3.5), layout='constrained')
-    axis[0] = sampling_parameter_cis_comparison(
+                             figsize=(7, 3), layout='constrained')
+    axis[0], _ = sampling_parameter_cis_comparison(
             results=real_data_results['alpha'],
             methods={'posterior_samples': 'Bias-aware NPE', 'stan_posterior_samples': 'MCMC'},
             variant='alpha',
@@ -813,14 +812,14 @@ if len(variants) == 2:
             colors=method_colors[::-1],
             ax=axis[0]
         )
-    axis[1] = sampling_parameter_cis_comparison(
+    axis[1], handles = sampling_parameter_cis_comparison(
             results=real_data_results['omicron'],
             methods={'posterior_samples': 'Bias-aware NPE', 'stan_posterior_samples': 'MCMC'},
             variant='omicron',
             param_dict=param_names,
             alpha=[99, 95, 80],
             size=(5, 4),
-            show_legend=True,
+            show_legend=False,
             colors=method_colors[::-1],
         ax=axis[1]
         )
@@ -828,6 +827,9 @@ if len(variants) == 2:
     for ax in axis:
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
+    handles = [handles[2], handles[-2], handles[1], handles[-1], handles[0]]
+    fig.legend(handles=handles, loc='lower center', ncol=3, frameon=False,
+               fontsize=10, bbox_to_anchor=(0.5, -0.2))
     fig.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_real_CIs.pdf', bbox_inches='tight')
     plt.show()
 

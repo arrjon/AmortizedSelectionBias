@@ -460,7 +460,7 @@ def sampling_parameter_cis_comparison(
     ax: matplotlib.axes.Axes = None,
     show_legend: bool = False,
     colors: list[str] = None,
-) -> matplotlib.axes.Axes:
+):
     """
     Plot MCMC-based parameter credibility intervals for multiple methods,
     using colored boxes per method.
@@ -537,9 +537,9 @@ def sampling_parameter_cis_comparison(
     ax.grid(axis='x', linestyle='--', alpha=0.7)
     ax.set_yticks(range(n_pars))
     if param_dict is not None:
-        ax.set_yticklabels(param_dict.values(), fontsize=12)
-    ax.set_xlabel(f"{variant.title()} parameter value", fontsize=12)
-    ax.set_ylabel("Parameters", fontsize=12)
+        ax.set_yticklabels(param_dict.values(), fontsize=10)
+    ax.set_xlabel(f"{variant.title()} parameter value", fontsize=10)
+    ax.set_ylabel("Parameters", fontsize=10)
     if title:
         ax.set_title(title)
     ax.invert_yaxis()
@@ -553,16 +553,17 @@ def sampling_parameter_cis_comparison(
         Patch(color=method_colors[i], label=name)
         for i, name in enumerate(methods.values())
     ][::-1]
+    handles = ci_patches + variant_lines
     if show_legend:
         ax.legend(
-            handles = ci_patches + variant_lines,
+            handles = handles,
             bbox_to_anchor=(0.5, 1),
             frameon=True,
-            fontsize=12,
+            fontsize=10,
             facecolor='white',
             edgecolor='white',
         )
-    return ax
+    return ax, handles
 
 
 def count_households_first_pos(
@@ -695,7 +696,7 @@ def count_households_first_pos(
         out[variant]['n_households'] = out[variant]['n_households'][0]
     return out
 
-#%%
+
 def plot_first_positive_age_group_counts(
         list_sim: list[dict], colors: list[str], labels: list[str],
         real_data: dict = None, save_path = None
@@ -723,7 +724,7 @@ def plot_first_positive_age_group_counts(
                 showmedians=True,
                 showextrema=False,
             )
-            a.set_ylabel(f"{variant}".title(), fontsize=10)
+            a.set_ylabel(f"{variant}".title(), fontsize=12)
             # Label each set of violin bodies for legend
             for body in parts['bodies']:
                 body.set_color(colors[i])
@@ -739,7 +740,7 @@ def plot_first_positive_age_group_counts(
         a.grid(axis='y')
         a.set_ylim(0, None)
         a.set_xticks(np.arange(len(age_groups)))
-        a.set_xticklabels(age_groups, fontsize=10)
+        a.set_xticklabels(age_groups, fontsize=12)
 
     if real_data is not None:
         for a, (variant, _) in zip(ax, first_positive_dicts[0].items()):
@@ -754,7 +755,7 @@ def plot_first_positive_age_group_counts(
                 zorder=3
             )
 
-    fig.supylabel("Fraction of age group with first positive", fontsize=10)
+    fig.supylabel("Fraction of age group with first positive", fontsize=12)
 
     handles, labels = ax[0].get_legend_handles_labels()
     # move the real data handle to the second row
