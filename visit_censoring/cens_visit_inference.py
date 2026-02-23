@@ -258,8 +258,8 @@ else:
         logging.info("No history file found.")
 
 #%%
-logging.info('Compare models...')
 if network_name not in posterior_samples_model:
+    logging.info('Sample parameters to compare models...')
     # custom plot for recovery for multiple models
     posterior_samples_valid = workflow.sample(conditions=validation_data, num_samples=1000,
                                               batch_size=BATCH_SIZE // 2)
@@ -271,13 +271,15 @@ if network_name not in posterior_samples_model:
         posterior_samples_model[f'{network_name}-uncensored'] = posterior_samples_valid
 
 if len(posterior_samples_model) == 3:
+    logging.info('Compare models...')
     labels_dict = {
-        'ConsistencyModel_SetTransformer': ('Bias-aware NPE (Censored Data)', colors[-1]),
-        'ConsistencyModel_SetTransformer_full': ('NPE (Censored Data)', colors[0]),
-        'ConsistencyModel_SetTransformer_full-uncensored': ('NPE (Uncensored Data)', colors[2])
+        'ConsistencyModel_SetTransformer': ('Bias-aware NPE (Censored Data)', colors[-1], 3),
+        'ConsistencyModel_SetTransformer_full': ('NPE (Censored Data)', colors[0], 2),
+        'ConsistencyModel_SetTransformer_full-uncensored': ('NPE (Uncensored Data)', colors[2], 1)
     }
     labels = [labels_dict[m][0] for m in posterior_samples_model]
     colors_ordered = [labels_dict[m][1] for m in posterior_samples_model]
+    posterior_samples_model = dict(sorted(posterior_samples_model.items(), key=lambda item: labels_dict[item[0]][2]))
     plot_params_error(
         posterior_samples_model,
         validation_data, validation_data_full,

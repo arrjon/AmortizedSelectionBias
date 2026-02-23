@@ -88,8 +88,8 @@ def plot_params_error(
                 bp["boxes"][0].set_label(labels[i])
 
     # ---- define break limits ----
-    ax_bottom.set_ylim(0, 0.6)  # main region
-    ax_top.set_ylim(1.5, ax_top.get_ylim()[1])  # adjust lower bound as needed
+    ax_bottom.set_ylim(0, 0.4)
+    ax_top.set_ylim(1.5, ax_top.get_ylim()[1])
 
     # hide spines between axes
     ax_top.spines["bottom"].set_visible(False)
@@ -639,18 +639,17 @@ def plot_hazard_nrmse(
 
     # --- helpers ---
     def adjusted_a(a, beta_sex, beta_age, mean_sex, mean_age):
-        # multiplicative covariate effect on the scale (common in PH-like parameterizations)
+        # multiplicative covariate effect on the scale
         return a * np.exp(beta_sex * mean_sex + beta_age * mean_age)
 
     def hazard_from_params(t_grid, a, shape, beta_sex, beta_age, mean_sex, mean_age):
         a_adj = adjusted_a(a, beta_sex, beta_age, mean_sex, mean_age)
         return weibull_hazard(t_grid[None, :], a_adj[:, None], shape[:, None])  # (n, T)
 
-    def nrmse(x, y, eps=1e-2):
-        # x,y shape: (T,) or (N,T) or (T, n_draws) etc; reduce over all elements
+    def nrmse(x, y):
         diff2 = (x - y) ** 2
         rmse = np.sqrt(np.mean(diff2))
-        denom = (np.max(y) - np.min(y)) + eps
+        denom = np.mean(np.abs(y))
         return rmse / denom
 
     # --- choose covariate means (average individual) ---
@@ -658,8 +657,6 @@ def plot_hazard_nrmse(
     mean_age = float(np.mean(validation_data["age"]))
 
     # --- choose a time grid for evaluating hazards ---
-    # pick something representative; a good default is to use observed follow-up times.
-    # You can change this if dt/ds have a specific meaning in your setup.
     times = np.concatenate([np.asarray(validation_data["dt"]).ravel(),
                             np.asarray(validation_data["ds"]).ravel()])
     times = times[np.isfinite(times)]
@@ -702,8 +699,6 @@ def plot_hazard_nrmse(
         h_true_full[tr] = hazard_from_params(t_grid, a, s, bs, ba, mean_sex, mean_age)  # (n_data, T)
 
     # --- now compute per-model posterior hazard NRMSE distributions ---
-    # For each posterior draw d, compute h_post(i,t,d), compare to h_true(i,t), summarize NRMSE over i,t
-    # This yields one NRMSE per draw (distribution).
     hazard_errors_model = {}  # model -> list of 3 arrays (each: (n_draws,))
     for model_name, samples in posterior_samples_model.items():
         errs_per_tr = []
@@ -724,7 +719,6 @@ def plot_hazard_nrmse(
             n_data, n_draws = a.shape
 
             # compute hazards for each draw:
-            # do it draw-wise to keep memory reasonable and to get NRMSE per draw
             tr_errs = np.empty(n_draws, dtype=float)
 
             if 'uncensored' in model_name:
@@ -746,7 +740,7 @@ def plot_hazard_nrmse(
 
         hazard_errors_model[model_name] = errs_per_tr
 
-    # --- plot: grouped boxplot for h01,h02,h12 across models (same styling as before) ---
+    # --- plot: grouped boxplot for h01,h02,h12 across models ---
     fig, ax = plt.subplots(figsize=(5, 2.5), layout="constrained")
 
     base_positions = np.arange(len(transitions))
@@ -776,7 +770,12 @@ def plot_hazard_nrmse(
     ax.set_xticks(base_positions)
     ax.set_xticklabels(hazard_labels)
     ax.set_ylabel("Hazard NRMSE")
-    ax.legend(frameon=False)
+    ax.legend(facecolor='white', framealpha=1, edgecolor='white', fancybox=False)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.grid(axis='y')
+    #ax.set_ylim(0, 0.1)
+    ax.set_yscale('log')
     if save_path is not None:
         fig.savefig(save_path, bbox_inches='tight')
         plt.close(fig)
