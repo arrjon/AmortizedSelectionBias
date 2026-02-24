@@ -290,7 +290,7 @@ def plot_params(
                 this_ax.set_ylabel(r'$h_{'+a_name[-2:]+'}$', fontsize=12)
             if row == 0:
                 this_ax.set_title(f'Epoch {e[-1]}', fontsize=14)
-            elif row == nrows - 1:
+            elif row == 2:
                 this_ax.set_xlabel('Follow up years since entry in epoch')
 
             # remove top and right spines
@@ -357,7 +357,7 @@ def plot_params(
             this_ax.set_xticklabels(transitions)
             if col_idx == 0:
                 this_ax.set_ylabel(beta.replace('_', ' '), fontsize=12)
-            if row_idx == 3:
+            if row_idx == 4:
                 this_ax.set_xlabel('Transition', fontsize=12)
 
             # remove top and right spines
@@ -411,7 +411,6 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, transition='
 
         age_coef_name = f'beta{trans}_age'
         sex_coef_name = f'beta{trans}_sex'
-        a01_param_name = f'a{trans}'
 
         # Weibull parameter names for transition 0→1
         a_key, shape_key = weibull_param_map[trans]
@@ -596,17 +595,17 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, transition='
             ax.set_xlim(0, 5)
             ax.set_ylim(0, None)
 
-        fig.supxlabel('Follow up years since entry in epoch', fontsize=12)
+        fig.supxlabel(r'Follow up years since entry in epoch', fontsize=12)
         # Single legend below the figure
         legend_handles = [
-            Patch(facecolor=colors[0], label='Naive Cox'),
-            Patch(facecolor=colors[1], alpha=0.75, label='Weibull IDM'),
+            Patch(facecolor=colors[3], alpha=0.3, label=r'Posterior $95\%$ CI'),
+            Line2D([0], [0], color=colors[3], linestyle='--', label=r'Posterior median'),
+            Patch(facecolor=colors[0], label=r'Naive Cox'),
+            Patch(facecolor=colors[1], alpha=0.75, label=r'Weibull IDM'),
             # Patch(facecolor=colors[2],  alpha=0.75, label='Splines IDM'),
-            Patch(facecolor=colors[3], alpha=0.3, label='Posterior 95% CI'),
-            Line2D([0], [0], color=colors[3], linestyle='--', label='Posterior median'),
         ]
-        fig.legend(handles=legend_handles, loc='lower center', ncol=4, bbox_to_anchor=(0.5, -0.1), frameon=False,
-                   fontsize=12, ncols=2)
+        fig.legend(handles=legend_handles, loc='lower center', ncol=3, bbox_to_anchor=(0.5, -0.07), frameon=False,
+                   fontsize=12)
 
         # print trends at 5 years for each method
         x = np.arange(len(epochs))
