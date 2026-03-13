@@ -295,6 +295,9 @@ if len(posterior_samples_model) == 3:
 
 # %%
 logging.info('Validation diagnostics...')
+if 'full' in network_name:
+    validation_data = validation_data_full
+
 if not os.path.exists(BASE / 'plots' / f'{network_name}_recovery.pdf'):
     posterior_samples_valid = workflow.sample(conditions=validation_data, num_samples=1000,
                                               batch_size=BATCH_SIZE // 2)
@@ -483,6 +486,7 @@ cmap = mcolors.LinearSegmentedColormap.from_list(
 
 # plot only a01
 p_name = 'a01'
+p_name_nice = r'$a_{01}$'
 fig, ax = plt.subplots(nrows=1, ncols=4, figsize=(10, 2), layout='constrained')
 for epoch_idx in range(4):
     # compute bin assignment
@@ -524,6 +528,7 @@ for epoch_idx in range(4):
     ax[epoch_idx].spines['top'].set_visible(False)
     ax[epoch_idx].spines['right'].set_visible(False)
     ax[epoch_idx].set_xlim(0, prior_summary[p_name]['high'])
+    ax[epoch_idx].set_xlabel(p_name_nice, fontsize=11)
 
 # add colorbar
 sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)

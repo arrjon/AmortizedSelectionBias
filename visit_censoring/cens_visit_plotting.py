@@ -598,8 +598,8 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name, transition='
         fig.supxlabel(r'Follow up years since entry in epoch', fontsize=12)
         # Single legend below the figure
         legend_handles = [
-            Patch(facecolor=colors[3], alpha=0.3, label=r'Posterior $95\%$ CI'),
-            Line2D([0], [0], color=colors[3], linestyle='--', label=r'Posterior median'),
+            Patch(facecolor=colors[3], alpha=0.3, label=r'Bias-aware NPE posterior $95\%$ CI'),
+            Line2D([0], [0], color=colors[3], linestyle='--', label=r'Bias-aware NPE posterior median'),
             Patch(facecolor=colors[0], label=r'Naive Cox'),
             Patch(facecolor=colors[1], alpha=0.75, label=r'Weibull IDM'),
             # Patch(facecolor=colors[2],  alpha=0.75, label='Splines IDM'),
