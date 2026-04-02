@@ -11,6 +11,7 @@ import json
 
 import numpy as np
 import pandas as pd
+from scipy.stats import median_abs_deviation as mad
 
 import keras
 import bayesflow as bf
@@ -37,7 +38,7 @@ epochs = ["epoch1", "epoch2", "epoch3", "epoch4"]
 data_names = ['illt', 'ills', 'dt', 'ds', 'sex', 'age']
 params_beta = ['beta01_age', 'beta02_age', 'beta12_age', 'beta01_sex', 'beta02_sex', 'beta12_sex']
 param_names_pretty = [r'$a_{01}$', r'$a_{02}$', r'$a_{12}$',
-                      r'$s_{01}$', r'$s_{02}$', r'$s_{12}$',
+                      r'$\kappa_{01}$', r'$\kappa_{02}$', r'$\kappa_{12}$',
                       r'$\beta_{01}^\text{sex}$', r'$\beta_{02}^\text{sex}$', r'$\beta_{12}^\text{sex}$',
                       r'$\beta_{01}^\text{age}$', r'$\beta_{02}^\text{age}$', r'$\beta_{12}^\text{age}$']
 
@@ -48,7 +49,7 @@ with open(BASE / 'baseline.json') as f:
 baseline = {e: {} for e in epochs}
 for e in epochs:
     baseline[e] = _baseline[e]
-    b = _baseline[f'coefs_{e}']
+    b = _baseline[e]['coefs']
     for p in params_beta:
         for k in b:
             if (k['row'] == f"{p[4:].split('_')[1]}_{p[4:].split('_')[0]}" or
@@ -273,9 +274,9 @@ if network_name not in posterior_samples_model:
 if len(posterior_samples_model) == 3:
     logging.info('Compare models...')
     labels_dict = {
-        'ConsistencyModel_SetTransformer': ('Bias-aware NPE (Censored Data)', colors[-1], 3),
-        'ConsistencyModel_SetTransformer_full': ('NPE (Censored Data)', colors[0], 2),
-        'ConsistencyModel_SetTransformer_full-uncensored': ('NPE (Uncensored Data)', colors[2], 1)
+        'ConsistencyModel_SetTransformer': ('Bias-aware NPE (Observed Data)', colors[-1], 3),
+        'ConsistencyModel_SetTransformer_full': ('NPE (Observed Data)', colors[2], 2),
+        'ConsistencyModel_SetTransformer_full-uncensored': ('NPE (Full Data)', colors[0], 1)
     }
     labels = [labels_dict[m][0] for m in posterior_samples_model]
     colors_ordered = [labels_dict[m][1] for m in posterior_samples_model]
@@ -302,14 +303,14 @@ if not os.path.exists(BASE / 'plots' / f'{network_name}_recovery.pdf'):
     posterior_samples_valid = workflow.sample(conditions=validation_data, num_samples=1000,
                                               batch_size=BATCH_SIZE // 2)
     fig = bf.diagnostics.recovery(posterior_samples_valid, validation_data,
-                                  color=colors[-1] if not 'full' in network_name else colors[0],
+                                  color=colors[-1] if not 'full' in network_name else colors[2],
                                   variable_names=param_names_pretty)
     fig.savefig(BASE / 'plots' / f'{network_name}_recovery.pdf', bbox_inches='tight')
     plt.show()
 
     fig = bf.diagnostics.calibration_ecdf(posterior_samples_valid, validation_data,
                                           variable_names=param_names_pretty,
-                                          rank_ecdf_color=colors[-1] if not 'full' in network_name else colors[0])
+                                          rank_ecdf_color=colors[-1] if not 'full' in network_name else colors[2])
     ax = fig.get_axes()
     for a in ax:
         a.set_ylim(-0.25, 0.25)
@@ -320,10 +321,19 @@ if not os.path.exists(BASE / 'plots' / f'{network_name}_recovery.pdf'):
     ps_valid_adapted = adapter.forward(posterior_samples_valid, strict=False)
     valid_adapted = adapter.forward(validation_data, strict=False)
     fig = bf.diagnostics.recovery(ps_valid_adapted, valid_adapted,
-                                  color=colors[-1] if not 'full' in network_name else colors[0],
+                                  color=colors[-1] if not 'full' in network_name else colors[2],
                                   variable_names=[r'trans ' + p for p in param_names_pretty])
     fig.savefig(BASE / 'plots' / f'{network_name}_recovery_adapted.pdf', bbox_inches='tight')
     plt.show()
+
+    vals = bf.diagnostics.posterior_contraction(posterior_samples_valid, validation_data)
+    vals_mad = bf.diagnostics.posterior_contraction(posterior_samples_valid, validation_data, aggregation=mad)
+    vals = {'contraction': vals['values'], 'mad': vals_mad['values']}
+    df = pd.DataFrame(vals)
+    df.index = param_names_pretty
+    vals_tex = df.to_latex()
+    with open(BASE / 'plots' / f'{network_name}_contraction.tex', 'a') as f:
+        f.write(vals_tex)
 
 logging.info('Prepare C2ST classifier')
 embedded_data = []
@@ -399,6 +409,11 @@ if os.path.exists(BASE / 'models' / f'posterior_samples_{network_name}.pkl'):
     logging.info('Loading posterior samples...')
     with open(BASE / 'models' / f'posterior_samples_{network_name}.pkl', 'rb') as f:
         real_posterior_samples = pickle.load(f)
+    try:
+        with open(BASE / 'models' / f'posterior_samples_{network_name}_full.pkl', 'rb') as f:
+            real_posterior_samples_full = pickle.load(f)
+    except FileNotFoundError:
+        real_posterior_samples_full = {}
 else:
     logging.info('Sample posterior for Framingham data...')
     real_posterior_samples = workflow.sample(conditions=real_data_dict, num_samples=1000)
@@ -417,6 +432,14 @@ for k, vals in real_posterior_samples.items():
         "low": np.quantile(vals, 0.025, axis=1).flatten(),
         "high": np.quantile(vals, 0.975, axis=1).flatten(),
     }
+if len(real_posterior_samples_full) > 0:
+    posterior_summary_full = {}
+    for k, vals in real_posterior_samples_full.items():
+        posterior_summary_full[k] = {
+            "median": np.median(vals, axis=1).flatten(),
+            "low": np.quantile(vals, 0.025, axis=1).flatten(),
+            "high": np.quantile(vals, 0.975, axis=1).flatten(),
+        }
 
 prior_samples = {}
 n_prior_samples = 1000
@@ -445,11 +468,31 @@ for k, vals in prior_samples.items():
 
 
 logging.info('Plot results...')
-plot_params(baseline, prior_samples, prior_summary, real_posterior_samples, posterior_summary, network_name, save_path=BASE / 'plots')
-plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, transition='01', save_path=BASE / 'plots')
-plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, transition='02', save_path=BASE / 'plots')
-plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, transition='12', save_path=BASE / 'plots')
-plot_cumhaz(baseline, real_posterior_samples, df_real, network_name, transition='all', save_path=BASE / 'plots')
+plot_params(
+    baseline,
+    prior_samples,
+    prior_summary,
+    real_posterior_samples,
+    posterior_summary,
+    network_name,
+    posterior_samples_2=real_posterior_samples_full,
+    posterior_summary_2=posterior_summary_full,
+    network_name_2=network_name+'_full',
+    show_cox=True,
+    idm_model='spl',
+    save_path=BASE / 'plots',
+)
+plot_cumhaz(
+    baseline,
+    real_posterior_samples,
+    df_real,
+    network_name,
+    posterior_samples_2=real_posterior_samples_full,
+    network_name_2=network_name+'_full',
+    #prior_samples=prior_samples,
+    show_cox=False,
+    save_path=BASE / 'plots',
+)
 
 #%% apply C2ST
 c2st_result_real = []
