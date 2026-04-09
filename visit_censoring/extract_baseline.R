@@ -1,8 +1,8 @@
 library(jsonlite)
 
-load("/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring/data/cumHaz_Cox_Weib_Splines.Rdata")
-load("/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring/data/fram_resfit.Rdata")
-load("/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring/data/baselinehazards_cox_splines.Rdata")
+load("/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring/Rdata/cumHaz_08_04_50.Rdata")
+load("/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring/Rdata/fram_resfit.Rdata")
+load("/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring/Rdata/baselinehazards_cox_splines.Rdata")
 
 # Helper to extract coefficients for one epoch
 extract_coefs <- function(obj, epoch_name) {
