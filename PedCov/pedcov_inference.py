@@ -38,7 +38,7 @@ batch_size = 64
 
 method_colors = ['#4B2E83', '#1B8A8F']
 
-if 'gpu' in partition or 'intelsr' in partition:
+if True: #'gpu' in partition:
     OutbreakSimulator = lambda variant: None
 else:
     from PedCov.simulator import OutbreakSimulator
@@ -116,39 +116,6 @@ def prior(variant_name) -> dict:
         'mu_protect_transm': np.random.lognormal(0, var) if 'mu_protect_transm' in param_names.keys() else 1.0
     }
     return params
-
-
-def plot_priors(n_samples=10000):
-    # Sample from the prior
-    samples = {key: np.zeros(n_samples) for key in param_names}
-    for n_i in range(n_samples):
-        p = prior("alpha")
-        for s_key in samples:
-            samples[s_key][n_i] = p[s_key]
-
-    # Set up subplots
-    fig, axes = plt.subplots(2, int(np.ceil(len(param_names) / 2)), figsize=(10, 4), tight_layout=True)
-    axes = axes.flatten()
-
-    for idx, key in enumerate(samples):
-        data = samples[key]
-        ax = axes[idx]
-
-        # Plot histogram
-        ax.hist(data, bins=50, density=True)
-        ax.set_title(key)
-        ax.set_ylabel('Density')
-        ax.set_xlabel(key)
-
-    # Remove any empty subplots
-    for j in range(len(samples), len(axes)):
-        fig.delaxes(axes[j])
-    plt.show()
-
-# Execute the plot function
-if not 'gpu' in partition:
-    pass #plot_priors()
-    #meta(), prior("alpha")
 
 simulator_alpha = OutbreakSimulator(variant='alpha')
 simulator_omicron = OutbreakSimulator(variant='omicron')
@@ -354,8 +321,7 @@ if len(variants) == 1:
         .one_hot('selection_procedure_id', num_classes=3)  # must be before convert_dtype
         .convert_dtype(from_dtype="float64", to_dtype="float32")
 
-        .constrain('beta', lower=0, inclusive='none', method="softplus")  # standard
-        .constrain([k for k in list(param_names.keys()) if k != 'delta' and k != 'beta'], lower=0, inclusive='none', method="exp")
+        .log([k for k in list(param_names.keys()) if k != 'delta'])
         .concatenate(list(param_names.keys()), into="inference_variables")
 
         .rename('selection_procedure_id', to_key="inference_conditions")
@@ -374,8 +340,7 @@ else:
         .one_hot('variant_id', num_classes=2)  # must be before convert_dtype
         .convert_dtype(from_dtype="float64", to_dtype="float32")
 
-        .constrain('beta', lower=0, inclusive='none', method="softplus")  # standard
-        .constrain([k for k in list(param_names.keys()) if k != 'delta' and k != 'beta'], lower=0, inclusive='none', method="exp")
+        .log([k for k in list(param_names.keys()) if k != 'delta'])
         .concatenate(list(param_names.keys()), into="inference_variables")
 
         .concatenate(['selection_procedure_id', 'variant_id'], into="inference_conditions")
@@ -387,14 +352,27 @@ else:
         .concatenate(["summary_variables", "inference_conditions"], into="summary_variables")
     )
 
+#%%
+test_data = adapter.forward(validation_data)['inference_variables']
+#test_data = adapter.forward(validation_data)['summary_variables']
+
+fig, ax = plt.subplots(3, test_data.shape[-1] // 2, figsize=(8, 3), layout='constrained')
+ax = ax.flatten()
+for i in range(test_data.shape[-1]):
+    ax[i].hist(test_data[:, i].flatten(), bins=30, density=True)
+    #ax[i].plot(test_data[:, i])
+    ax[i].set_title(f'Condition {i}')
+plt.show()
+print(test_data.shape, np.isnan(test_data).any())
+
+#%%
 @serializable("bayesflow.networks")
 class DoubleSummaryNetwork(bf.networks.SummaryNetwork):
-    def __init__(self, inner_network, outer_network, use_stats=False, name=None, **kwargs):
+    def __init__(self, inner_network, outer_network, name=None, **kwargs):
         super().__init__(**kwargs)
         self.name = 'inner_' + inner_network.name + '_outer_' + outer_network.name if name is None else name
         self.inner_network = inner_network  # operates over elements
         self.outer_network = outer_network  # operates over observations
-        self.use_stats = use_stats
         self.use_mask = False
         if 'transformer' in inner_network.name:
             self.use_mask = True
@@ -419,10 +397,6 @@ class DoubleSummaryNetwork(bf.networks.SummaryNetwork):
         # Apply the outer network to the inner outputs
         outer_output = self.outer_network(inner_output, training=training, **filter_kwargs(kwargs, self.outer_network.call))
 
-        if self.use_stats:
-            stats = self._compute_summary_stats(x)
-            combined = keras.ops.concatenate([outer_output, stats], axis=-1)
-            return combined
         return outer_output
 
 
@@ -431,7 +405,6 @@ class DoubleSummaryNetwork(bf.networks.SummaryNetwork):
         config.update({
             "inner_network": self.inner_network,
             "outer_network": self.outer_network,
-            "use_stats": self.use_stats
         })
         return config
 
@@ -451,36 +424,12 @@ class DoubleSummaryNetwork(bf.networks.SummaryNetwork):
         )
         return mask  # (B, T, S)
 
-    @staticmethod
-    def _compute_summary_stats(x):
-        """Compute informative summary statistics per batch"""
-        # x shape: (batch, households, 8, n_features)
-
-        # Extract key features (adjust indices to your data)
-        first_test_pos = x[..., 2]  # (batch, households, 8)
-        infection_status = x[..., 3]  # assuming this is binary
-
-        # Per-household statistics
-        attack_rate = keras.ops.mean(infection_status, axis=2)  # (batch, households)
-        infection_span = keras.ops.max(first_test_pos, axis=2) - keras.ops.min(first_test_pos, axis=2)
-
-        # Global statistics
-        stats = keras.ops.concatenate([
-            keras.ops.mean(attack_rate, axis=1, keepdims=True),  # mean attack rate
-            keras.ops.std(attack_rate, axis=1, keepdims=True),  # variation across households
-            keras.ops.mean(infection_span, axis=1, keepdims=True),
-            keras.ops.std(infection_span, axis=1, keepdims=True),
-        ], axis=-1)
-
-        return stats
-
 # %%
 if job_array_id == -1:
     EPOCHS = 2
     summary_network = DoubleSummaryNetwork(
-        inner_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3),
+        inner_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3, dropout=0.1),
         outer_network=bf.networks.DeepSet(summary_dim=len(param_names) * 3, dropout=0.1),
-        use_stats=True,
     )
     inference_network = bf.networks.CouplingFlow(depth=2)
     network_name = 'test'
@@ -490,36 +439,39 @@ if job_array_id == -1:
 elif job_array_id == 0:
     EPOCHS = 100
     summary_network = DoubleSummaryNetwork(
-        inner_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3),
+        inner_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3, dropout=0.1),
         outer_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3, dropout=0.1),
         name=f'transformer_transformer'
     )
     inference_network = bf.networks.CouplingFlow(depth=7, subnet_kwargs={"dropout": 0.1}, transform='spline')
     network_name = 'coupling_flow_tt'
-    # RMSE:
 elif job_array_id == 1:
-    EPOCHS = 300
+    EPOCHS = 150
     summary_network = DoubleSummaryNetwork(
-        inner_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3),
+        inner_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3, dropout=0.1),
         outer_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3, dropout=0.1),
         name=f'transformer_transformer'
     )
     inference_network = bf.networks.FlowMatching(subnet_kwargs={"dropout": 0.1})
-    network_name = 'flow_matching_tt'
-    # RMSE:
+    network_name = 'flow_matching_tt_150'
 elif job_array_id == 2:
     EPOCHS = 300
     summary_network = DoubleSummaryNetwork(
-        inner_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3),
+        inner_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3, dropout=0.1),
         outer_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3, dropout=0.1),
         name=f'transformer_transformer'
     )
-    inference_network = bf.networks.DiffusionModel(
-        noise_schedule='cosine',
-        prediction_type='velocity'
+    inference_network = bf.networks.FlowMatching(subnet_kwargs={"dropout": 0.1})
+    network_name = 'flow_matching_tt_300'
+elif job_array_id == 3:
+    EPOCHS = 500
+    summary_network = DoubleSummaryNetwork(
+        inner_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3, dropout=0.1),
+        outer_network=bf.networks.SetTransformer(summary_dim=len(param_names) * 3, dropout=0.1),
+        name=f'transformer_transformer'
     )
-    network_name = 'diffusion_model_tt'
-    # RMSE:
+    inference_network = bf.networks.FlowMatching(subnet_kwargs={"dropout": 0.1})
+    network_name = 'flow_matching_tt_500'
 else:
     raise ValueError(f"Unknown job array id: {job_array_id}")
 
@@ -609,7 +561,7 @@ c2st_results_random = []
 full_set = np.concatenate((estimates, targets), axis=0)
 for _ in range(10):
     # permute all labels to create random classifier
-    np.random.shuffle(full_set)
+    np.random.shuffle(full_set)  # shuffles the array along the first axis of a multi-dimensional array
     estimates_random = full_set[:estimates.shape[0]]
     targets_random = full_set[estimates.shape[0]:]
 

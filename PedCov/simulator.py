@@ -31,9 +31,8 @@ def dict_to_named_r_list(d):
             r_list[key] = FloatVector([value])
     return ListVector(r_list)
 
-# -----------------------------------------------------------------------------
+
 # Python wrapper to run across all households
-# -----------------------------------------------------------------------------
 class OutbreakSimulator:
     def __init__(self, variant='alpha'):
         self.variant   = variant

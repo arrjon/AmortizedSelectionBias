@@ -2,7 +2,7 @@ library(dplyr)
 library(stringr)
 library(actuar)
 
-data_simulation <- function(variant=NULL, par=NULL, n_repeats=50) {
+data_simulation <- function(variant=NULL, par=NULL, n_repeats=50, select_process=NULL) {
   
   d <- read.table(paste0("PedCov/pedcovid_data_structure_", variant, ".txt"), header=T) %>%
     group_by(id_hh) %>%
@@ -35,12 +35,12 @@ data_simulation <- function(variant=NULL, par=NULL, n_repeats=50) {
     # message(paste("Creating household",hh,"over",max(d$id_hh)))
     
     d_hh <- d[d$id_hh==hh,] # Keep only hh data
-    new_data_hh <- simulate_outbreak(d_hh, variant, delayDist, par) # Simulate outbreak
+    new_data_hh <- simulate_outbreak(d_hh, variant, delayDist, par, select_process) # Simulate outbreak
     
     # Outbreak simulation can produce households where none has a positive test
     # Those households are not usable, so we need to re-simulate. We keep track of the times it happens
     while(sum(is.na(new_data_hh$infect_status))==dim(d_hh)[1]) {
-      new_data_hh <- simulate_outbreak(d_hh, variant, delayDist, par)
+      new_data_hh <- simulate_outbreak(d_hh, variant, delayDist, par, select_process)
       no_positive_test <- no_positive_test+1
     }
     # Some asymptomatic individuals do not have a "date_sympt" because they may not have a positive test during the study (if inclusion is too far from infection)
@@ -61,7 +61,7 @@ data_simulation <- function(variant=NULL, par=NULL, n_repeats=50) {
   return(select(new_data, !id_rep))
 }
 
-simulate_outbreak <- function(d_hh=NULL, variant=NULL, delayDist=NULL, par=NULL) {
+simulate_outbreak <- function(d_hh=NULL, variant=NULL, delayDist=NULL, par=NULL, select_process=NULL) {
   
   if(variant=="alpha") {
     p_asympto <- 0.4
@@ -241,9 +241,19 @@ simulate_outbreak <- function(d_hh=NULL, variant=NULL, delayDist=NULL, par=NULL)
   }
   
   ################## ADD INCLUSION ##################
-  # Choose inclusion case among individuals with a positive test
-  # Find id of individuals with a positive test
-  positive_ids <- names(tests)[sapply(tests, function(df) 1%in%df$result)]
+  # Choose inclusion case among individuals with a positive test in the corresponding age group
+  all_positive_ids <- names(tests)[sapply(tests, function(df) 1%in%df$result)]
+  if(select_process=="pedcov") {
+    ages <- d_hh$age_exact[match(as.numeric(all_positive_ids), d_hh$id_patient)]
+    positive_ids <- all_positive_ids[ages <= 18]
+  }
+  else if(select_process=="adultcov") {
+    ages <- d_hh$age_exact[match(as.numeric(all_positive_ids), d_hh$id_patient)]
+    positive_ids <- all_positive_ids[ages > 18]
+  }
+  else {
+    positive_ids <- all_positive_ids
+  }
   # If no individual has a positive test, exit the simulation
   if(length(positive_ids)==0) {
     d_hh$infect_status <- NA # marks a non valid simulation
@@ -279,7 +289,7 @@ simulate_outbreak <- function(d_hh=NULL, variant=NULL, delayDist=NULL, par=NULL)
                                             !is.na(last_test_neg) ~ 30 + round(as.numeric(last_test_neg - m)) ),
                  end_followup = round(min(date_sympt, na.rm=T)+duration_followup) )
 
-  return(d_hh)#select(d_hh, id_patient, id_hh, hh_size, date_sympt, infect_status, end_followup, age, protected, age_exact))
+  return(d_hh)
 }
 
 # Plan a test for family members a few days after symptoms or positive test
@@ -390,7 +400,7 @@ data_selection <- function(d=NULL, variant=NULL, method=NULL) {
     
     u <- sample(hh, 1) # pick one randomly
     
-    if(method=="pedcov") {
+    if(method=="pedcov") { # redundant but makes sure correct things are selected
       # If inclusion case is an adult --> exclude and go to next iteration
       if(d$age_exact[d$id_hh==u & d$is_incluCase==1] > 18 ) {
         hh <- hh[hh!=u] # Remove this hh from the list of pickable hh
@@ -421,20 +431,22 @@ data_selection <- function(d=NULL, variant=NULL, method=NULL) {
 simulate <- function(par, variant, select_process, id=1) {
 
   if(select_process=="all") {
-    sim_data <- data_simulation(variant, par)
+    sim_data <- data_simulation(variant, par, select_process = "pedcov")
     recruit_pedcov <- mutate(data_selection(sim_data, variant, "pedcov"), "variant"=variant) %>%
     mutate(id_simu = id, select_process = "pedcov")
 
+    sim_data <- data_simulation(variant, par, select_process = "adultcov")
     recruit_adultcov <- mutate(data_selection(sim_data, variant, "adultcov"), "variant"=variant) %>%
     mutate(id_simu = id, select_process = "adultcov")
 
+    sim_data <- data_simulation(variant, par, select_process = "random")
     recruit_random <- mutate(data_selection(sim_data, variant, "random"), "variant"=variant) %>%
     mutate(id_simu = id, select_process = "random")
 
     recruit <- rbind(recruit_pedcov, recruit_adultcov, recruit_random)
   }
   else {
-    sim_data <- data_simulation(variant, par)
+    sim_data <- data_simulation(variant, par, select_process = select_process)
     recruit <- mutate(data_selection(sim_data, variant, select_process), "variant"=variant) %>%
     mutate(id_simu = id, select_process = select_process)
   }
