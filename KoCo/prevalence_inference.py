@@ -33,6 +33,9 @@ cat_to_int = {
 }
 colors = ['#4B2E83', '#D64A62', '#1B8A8F']
 
+plt.rcParams['mathtext.fontset'] = 'stix'
+plt.rcParams['font.family'] = 'STIXGeneral'
+
 
 def hyperparameters():
     return dict(epoch_index=np.random.choice([1,2,3,4,5]))
@@ -72,8 +75,6 @@ def simulator(epoch_index):
 
 simulator_bf = bf.make_simulator([hyperparameters, simulator])
 #%%
-#for k, v in simulator_bf.sample_parallel(100).items():
-#    print(k, v.shape if isinstance(v, np.ndarray) else type(v))
 
 data_path = BASE / 'data'
 n_val_data = 1000
@@ -307,7 +308,6 @@ for e_index in range(1, 6):
         np.array([pv['prevalence_true'] for pv in sim_out_missing])
     )
     results_missing['NPE'][e_index - 1] = error(
-        #np.median(posterior_samples_real['prevalence_true'], axis=1).flatten(),
         np.array(posterior_mode),
         np.array([pv['prevalence_true'] for pv in sim_out_missing])
     )
@@ -320,7 +320,6 @@ for e_index in range(1, 6):
         np.array([pv['prevalence_true'] for pv in sim_out])
     )
     results['NPE'][e_index - 1] = error(
-        #np.median(posterior_samples_real['prevalence_true'], axis=1).flatten(),
         np.array(posterior_mode),
         np.array([pv['prevalence_true'] for pv in sim_out])
     )
@@ -348,12 +347,12 @@ for missing, result in zip([True, False], [results_missing, results]):
         bp["boxes"][0].set_label(labels[i])
 
     ax.set_xticks(np.arange(5))
-    ax.set_xticklabels(['$R_1$', '$R_2$', '$R_3$', '$R_4$', '$R_5$'])
+    ax.set_xticklabels([r'$R_1$', r'$R_2$', r'$R_3$', r'$R_4$', r'$R_5$'])
     if missing:
         ax.set_xlabel(r'Simulated round (with missingness)')
     else:
         ax.set_xlabel(r'Simulated round')
-    ax.set_ylabel('Absolute error\nin percentage points')
+    ax.set_ylabel(r'Absolute error ($\%$)')
     ax.grid(axis='y')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -441,16 +440,16 @@ for i, samples in enumerate(list(results_real.values())[:-1]):  # exclude C2ST
     # Label each set of violin bodies for legend
     for body in parts['bodies']:
         body.set_color(colors[i])
-    parts['cmedians'].set_color(colors[i])
+        body.set_alpha(1)
+        body.set_edgecolor('black')
+    parts['cmedians'].set_color('black')
     for body in parts['bodies']:
         body.set_label(labels[i])
         break
     logging.info(f"{labels[i]}: Median {np.median([samples[t].flatten()*100 for t in range(5)], axis=1)}%")
 
 ax.set_xticks(np.arange(5))
-ax.set_xticklabels([f'$R_1$', f'$R_2$',
-                    f'$R_3$', f'$R_4$',
-                    f'$R_5$'])
+ax.set_xticklabels([r'$R_1$', r'$R_2$', r'$R_3$', r'$R_4$', r'$R_5$'])
 ax.set_xlabel(r'KoCo19 Round')
 ax.set_ylabel('Estimated\nPrevalence'+r' ($\%$)')
 ax.spines['top'].set_visible(False)

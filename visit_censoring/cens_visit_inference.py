@@ -27,6 +27,9 @@ job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 2))  # 2, 6
 n_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 10))
 partition = os.environ.get('SLURM_JOB_PARTITION', 'local')
 
+plt.rcParams['mathtext.fontset'] = 'stix'
+plt.rcParams['font.family'] = 'STIXGeneral'
+
 if 'gpu' in partition or 'intelsr' in partition:
     simulate_all_epochs = lambda: 0
 else:
@@ -460,12 +463,6 @@ for k, vals in prior_samples.items():
         "high": np.quantile(vals, 0.975),
     }
 
-# for i in range(len(framingham_file_names)):
-#     logging.info(f'Epoch {i+1}')
-#     for k, v in real_posterior_samples.items():
-#         logging.info(f'{k} Median: {np.median(v, axis=1)[i].item()}, '
-#                  f'Quantiles: {np.quantile(v, axis=1, q=[0.025, 0.975])[:, i].flatten()}')
-
 
 logging.info('Plot results...')
 plot_params(
@@ -489,7 +486,6 @@ plot_cumhaz(
     network_name,
     posterior_samples_2=real_posterior_samples_full,
     network_name_2=network_name+'_full',
-    #prior_samples=prior_samples,
     show_cox=False,
     save_path=BASE / 'plots',
 )
@@ -520,6 +516,7 @@ for i in range(len(framingham_file_names)):
     c2st_result_real_random.append((test_statistic, p_val))
     logging.info(f'C2ST Statistic: {test_statistic}, p-value: {p_val}')
 
+#%%
 bins = 20
 norm = mcolors.Normalize(vmin=0.5, vmax=1.0)
 cmap = mcolors.LinearSegmentedColormap.from_list(
@@ -530,7 +527,15 @@ cmap = mcolors.LinearSegmentedColormap.from_list(
 # plot only a01
 p_name = 'a01'
 p_name_nice = r'$a_{01}$'
-fig, ax = plt.subplots(nrows=1, ncols=4, figsize=(10, 2), layout='constrained')
+if 'full' in network_name:
+    fig, ax = plt.subplots(nrows=1, ncols=4, figsize=(10, 2), layout='constrained')
+else:
+    fig, ax = plt.subplots(nrows=1, ncols=4, figsize=(10, 1.7), layout='constrained')
+
+class ScalarFormatter1f(plt.ScalarFormatter):
+    def _set_format(self):
+        self.format = '%1.1f'
+
 for epoch_idx in range(4):
     # compute bin assignment
     x = real_posterior_samples[p_name][epoch_idx].flatten()
@@ -555,28 +560,40 @@ for epoch_idx in range(4):
         )
 
     if epoch_idx == 0:
-        ax[epoch_idx].set_ylabel(f"Density of {param_names_pretty[0]}", fontsize=11)
-    ax[epoch_idx].set_title(rf"Epoch {epoch_idx+1}", fontsize=11)
+        ax[epoch_idx].set_ylabel(f"Density of {param_names_pretty[0]}", fontsize=15)
     m_score = np.mean(c2st_result_real[epoch_idx])
     ax[epoch_idx].text(
         0.95, 0.95,
-        f"Mean C2ST={m_score:.2f}\np-value={c2st_result_real_random[epoch_idx][1]:.1f}",
+        f"Mean C2ST={m_score:.2f}\np-value={c2st_result_real_random[epoch_idx][1]:.2f}",
         horizontalalignment='right',
         verticalalignment='top',
         transform=ax[epoch_idx].transAxes,
-        fontsize=9,
+        fontsize=13,
         bbox=dict(facecolor="white", edgecolor="white", alpha=0.75)
     )
     # remove top and right spines
     ax[epoch_idx].spines['top'].set_visible(False)
     ax[epoch_idx].spines['right'].set_visible(False)
     ax[epoch_idx].set_xlim(0, prior_summary[p_name]['high'])
-    ax[epoch_idx].set_xlabel(p_name_nice, fontsize=11)
+
+    formatter = ScalarFormatter1f(useMathText=True)
+    formatter.set_powerlimits((0, 0))
+    ax[epoch_idx].yaxis.set_major_formatter(formatter)
+    ax[epoch_idx].tick_params(axis='y', labelsize=13)
+    ax[epoch_idx].tick_params(axis='x', labelsize=13)
+
+    if 'full' in network_name:
+        ax[epoch_idx].set_xlabel(p_name_nice, fontsize=15)
+    else:
+        ax[epoch_idx].set_title(rf"Epoch {epoch_idx + 1}", fontsize=15)
+        ax[epoch_idx].set_xticklabels([])
 
 # add colorbar
 sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
 sm.set_array([])
-cbar = fig.colorbar(sm, ax=ax.ravel().tolist(), label="C2ST score\n(mean per bin)", fraction=0.02)
+cbar = fig.colorbar(sm, ax=ax.ravel().tolist(), fraction=0.02)
+cbar.ax.tick_params(labelsize=13)
+cbar.set_label("C2ST score\n(mean per bin)", fontsize=15)
 fig.savefig(BASE / 'plots' / f'{network_name}_real_c2st_histograms_{p_name}.pdf', bbox_inches='tight')
 plt.show()
 

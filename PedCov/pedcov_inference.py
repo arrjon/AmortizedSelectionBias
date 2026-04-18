@@ -38,7 +38,10 @@ batch_size = 64
 
 method_colors = ['#4B2E83', '#1B8A8F']
 
-if True: #'gpu' in partition:
+plt.rcParams['mathtext.fontset'] = 'stix'
+plt.rcParams['font.family'] = 'STIXGeneral'
+
+if 'gpu' in partition:
     OutbreakSimulator = lambda variant: None
 else:
     from PedCov.simulator import OutbreakSimulator

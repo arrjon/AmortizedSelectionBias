@@ -1,6 +1,6 @@
 library(jsonlite)
 
-load("/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring/Rdata/cumHaz_08_04_50.Rdata")
+load("/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring/Rdata/cumHaz_final.Rdata")
 load("/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring/Rdata/fram_resfit.Rdata")
 load("/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/visit_censoring/Rdata/baselinehazards_cox_splines.Rdata")
 

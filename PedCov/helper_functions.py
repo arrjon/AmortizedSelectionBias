@@ -728,6 +728,7 @@ def plot_first_positive_age_group_counts(
             # Label each set of violin bodies for legend
             for body in parts['bodies']:
                 body.set_color(colors[i])
+                body.set_alpha(1)
             parts['cmedians'].set_color(colors[i])
             if variant == 'alpha':
                 for body in parts['bodies']:

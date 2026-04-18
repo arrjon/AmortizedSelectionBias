@@ -16,6 +16,9 @@ params_beta = ['beta01_age', 'beta02_age', 'beta12_age', 'beta01_sex', 'beta02_s
 params_a = ['a01', 'a02', 'a12']
 params_shape = ['shape01', 'shape02', 'shape12']
 
+plt.rcParams['mathtext.fontset'] = 'stix'
+plt.rcParams['font.family'] = 'STIXGeneral'
+
 
 def cumulative_trapz_samples(t, h_samples):
     return cumulative_trapezoid(h_samples, x=t, axis=1, initial=0.0)
@@ -328,14 +331,14 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name,
         transition = [transition]
 
     npe_color = colors[3] if 'full' not in network_name else colors[2]
-    npe_name = 'Bias-aware NPE' if 'full' not in network_name else 'NPE'
+    npe_name = r'Bias-aware NPE' if 'full' not in network_name else r'NPE'
     has_second = posterior_samples_2 is not None and network_name_2 is not None
     npe_color_2 = (colors[3] if 'full' not in network_name_2 else colors[2]) if has_second else None
-    npe_name_2 = ('Bias-aware NPE' if 'full' not in network_name_2 else 'NPE') if has_second else None
+    npe_name_2 = (r'Bias-aware NPE' if 'full' not in network_name_2 else r'NPE (observed data)') if has_second else None
 
     fig, axes_all = plt.subplots(
         len(transition), n_epochs,
-        figsize=(1.75 * n_epochs, 3 * len(transition)),
+        figsize=(1.75 * n_epochs, 3.1 * len(transition)),
         layout='constrained', sharey='row', sharex=True,
     )
 
@@ -435,31 +438,35 @@ def plot_cumhaz(baseline, posterior_samples, df_real, network_name,
                 ax.set_ylim(ylim)
 
             if trans_i == 0:
-                ax.set_title(f'Epoch {e[-1]}')
+                ax.set_title(f'Epoch {e[-1]}', fontsize=18)
             if epoch_idx == 0:
                 label = {'01': 'Dementia', '02': 'Death', '12': 'Dementia/death'}[trans]
-                ax.set_ylabel(f'{label} cumulative hazard\n per {per_person} persons', fontsize=12)
+                ax.set_ylabel(f'{label} cumulative\n hazard per {per_person} persons', fontsize=20)
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
             ax.grid(True)
             ax.set_xticks([1, 2, 3, 4, 5])
+            ax.tick_params(axis='x', labelsize=18)
+            ax.tick_params(axis='y', labelsize=18)
             ax.set_xlim(0, 5)
             ax.set_ylim(0.1, None)
             ax.set_yscale('log')
 
-        fig.supxlabel(r'Follow up years since entry in epoch', fontsize=12)
+        fig.supxlabel(r'Follow up years since entry in epoch', fontsize=20)
         legend_handles = []
-        if show_cox:
-            legend_handles.append(Patch(facecolor=colors[0], label='Naive Cox'))
-        legend_handles.append(Patch(facecolor=colors[1], alpha=0.75, label='IDM'))
         if has_prior:
             legend_handles.append(Patch(facecolor='black', alpha=0.15, label='Prior'))
-        if has_posterior:
-            legend_handles.append(Patch(facecolor=npe_color, alpha=0.3, label=npe_name))
+        if show_cox:
+            legend_handles.append(Patch(facecolor=colors[0], label='Naive Cox'))
+        #else:
+        #    legend_handles.append(Patch(facecolor=colors[0], label='NPE (full data)'))
         if has_posterior_2:
             legend_handles.append(Patch(facecolor=npe_color_2, alpha=0.3, label=npe_name_2))
+        if has_posterior:
+            legend_handles.append(Patch(facecolor=npe_color, alpha=0.3, label=npe_name))
+        legend_handles.append(Patch(facecolor=colors[1], alpha=0.75, label=r'IDM'))
         fig.legend(handles=legend_handles, loc='lower center', ncol=len(legend_handles),
-                   bbox_to_anchor=(0.5, -0.05), frameon=False, fontsize=12)
+                   bbox_to_anchor=(0.5, -0.05), frameon=False, fontsize=20)
 
     if save_path is not None:
         tr_str = 'all' if len(transition) == 3 else transition[0]
@@ -479,9 +486,6 @@ def plot_hazard_nrmse(
     def hazard_from_params(t_grid, a, shape, beta_sex, beta_age, mean_sex, mean_age):
         a_adj = adjusted_a(a, beta_sex, beta_age, mean_sex, mean_age)
         return weibull_hazard(t_grid[None, :], a_adj[:, None], shape[:, None])
-
-    def nrmse(x, y):
-        return np.sqrt(np.mean((x - y) ** 2)) / np.mean(np.abs(y))
 
     mean_sex = float(np.mean(validation_data["sex"]))
     mean_age = float(np.mean(validation_data["age"]))
@@ -519,11 +523,12 @@ def plot_hazard_nrmse(
             ba = np.asarray(samples[f"beta{tr}_age"])[:, :, 0]
             n_data, n_draws = a.shape
             ht = h_true_full[tr] if 'uncensored' in model_name else h_true[tr]
-            tr_errs = np.empty(n_draws, dtype=float)
+            tr_errs = np.empty((n_draws, n_data), dtype=float)
             for d in range(n_draws):
                 hd = hazard_from_params(t_grid, a[:, d], s[:, d], bs[:, d], ba[:, d], mean_sex, mean_age)
-                tr_errs[d] = nrmse(hd, ht)
-            errs_per_tr.append(tr_errs)
+                diff = hd - ht  # n_data, n_time
+                tr_errs[d] = np.sqrt(np.mean(diff ** 2, axis=-1)) / np.mean(ht, axis=-1) # n_data
+            errs_per_tr.append(np.median(tr_errs, axis=0))
         hazard_errors_model[model_name] = errs_per_tr
 
     fig, ax = plt.subplots(figsize=(5, 2.5), layout="constrained")
@@ -549,9 +554,11 @@ def plot_hazard_nrmse(
         bp["boxes"][0].set_label(label)
 
     ax.set_xticks(base_positions)
-    ax.set_xticklabels(hazard_labels)
-    ax.set_ylabel("Hazard NRMSE")
-    ax.legend(facecolor='white', framealpha=1, edgecolor='white', fancybox=False)
+    ax.set_xticklabels(hazard_labels, fontsize=13)
+    ax.tick_params(axis='y', labelsize=13)
+    ax.set_ylabel("Hazard NRMSE", fontsize=14)
+    #ax.legend(facecolor='white', framealpha=1, edgecolor='white', fancybox=False, fontsize=14,
+    #          loc='upper left')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.grid(axis='y')
@@ -564,10 +571,25 @@ def plot_hazard_nrmse(
 
 
 def plot_data_summaries(df_real, save_path=None):
-    base_color = colors[0]
-    dementia_color = "#E3B23C"
-    death_color = "#FF5A5E"
-    inconclusive_color = colors[-1]
+    base_color = '#5B8DB8'  # steel blue
+    dementia_color = '#E07B54'  # terracotta
+    death_color = '#888888'  # mid grey
+    inconclusive_color = '#A86BAD'  # muted purple-lilac
+
+    link_colors = [
+        "rgba(91,141,184,0.25)",  # Start->Mid Healthy
+        "rgba(224,123,84,0.25)",  # Start->Mid Dementia
+        "rgba(168,107,173,0.30)",  # Start->Mid Inconclusive
+        "rgba(91,141,184,0.20)",  # MidH->EndH
+        "rgba(224,123,84,0.20)",  # MidH->EndD
+        "rgba(136,136,136,0.25)",  # MidH->EndX
+        "rgba(91,141,184,0.20)",  # MidD->EndH
+        "rgba(224,123,84,0.25)",  # MidD->EndD
+        "rgba(136,136,136,0.25)",  # MidD->EndX
+        "rgba(91,141,184,0.20)",  # MidI->EndH
+        "rgba(224,123,84,0.20)",  # MidI->EndD
+        "rgba(136,136,136,0.30)",  # MidI->EndX (forced)
+    ]
 
     df = df_real.copy()
     case = df["case"].astype(str)
@@ -601,20 +623,6 @@ def plot_data_summaries(df_real, save_path=None):
     source = [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3]
     target = [1, 2, 3, 4, 5, 6, 4, 5, 6, 4, 5, 6]
     value  = [n_S_H, n_S_D, n_S_I, n_HH, n_HD, n_HX, n_DH, n_DD, n_DX, 0, 0, n_S_I]
-    link_colors = [
-        "rgba(75,46,131,0.25)",   # Start->Mid Healthy
-        "rgba(227,178,60,0.25)",  # Start->Mid Dementia
-        "rgba(27,138,143,0.30)",  # Start->Mid Inconclusive
-        "rgba(75,46,131,0.20)",   # MidH->EndH
-        "rgba(227,178,60,0.20)",  # MidH->EndD
-        "rgba(255,90,94,0.25)",   # MidH->EndX
-        "rgba(75,46,131,0.20)",   # MidD->EndH
-        "rgba(227,178,60,0.25)",  # MidD->EndD
-        "rgba(255,90,94,0.25)",   # MidD->EndX
-        "rgba(75,46,131,0.20)",   # MidI->EndH
-        "rgba(227,178,60,0.20)",  # MidI->EndD
-        "rgba(255,90,94,0.30)",   # MidI->EndX (forced)
-    ]
 
     fig = go.Figure(
         data=[go.Sankey(
@@ -624,7 +632,7 @@ def plot_data_summaries(df_real, save_path=None):
         )]
     )
     fig.update_layout(
-        width=900, height=420,
+        width=960, height=360,
         font=dict(
             family="CMU Serif, Computer Modern, Latin Modern Roman, Times New Roman, serif",
             size=30, color="black",
