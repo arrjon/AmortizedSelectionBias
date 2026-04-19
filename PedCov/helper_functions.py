@@ -537,9 +537,9 @@ def sampling_parameter_cis_comparison(
     ax.grid(axis='x', linestyle='--', alpha=0.7)
     ax.set_yticks(range(n_pars))
     if param_dict is not None:
-        ax.set_yticklabels(param_dict.values(), fontsize=10)
-    ax.set_xlabel(f"{variant.title()} parameter value", fontsize=10)
-    ax.set_ylabel("Parameters", fontsize=10)
+        ax.set_yticklabels(param_dict.values(), fontsize=12)
+    ax.set_xlabel(f"{variant.title()} parameter value", fontsize=12)
+    ax.set_ylabel("Parameters", fontsize=12)
     if title:
         ax.set_title(title)
     ax.invert_yaxis()
@@ -707,7 +707,7 @@ def plot_first_positive_age_group_counts(
     if real_data is not None:
         real_data = count_households_first_pos(real_data)
 
-    fig, ax = plt.subplots(ncols=1, nrows=len(first_positive_dicts[0]), figsize=(5, 4),
+    fig, ax = plt.subplots(ncols=1, nrows=len(first_positive_dicts[0]), figsize=(6, 4),
                            sharey=True, sharex=True, layout='constrained')
     ax = ax.flatten()
     width = 0.2
@@ -724,11 +724,10 @@ def plot_first_positive_age_group_counts(
                 showmedians=True,
                 showextrema=False,
             )
-            a.set_ylabel(f"{variant}".title(), fontsize=12)
+            a.set_ylabel(f"{variant}".title(), fontsize=18)
             # Label each set of violin bodies for legend
             for body in parts['bodies']:
                 body.set_color(colors[i])
-                body.set_alpha(1)
             parts['cmedians'].set_color(colors[i])
             if variant == 'alpha':
                 for body in parts['bodies']:
@@ -738,10 +737,12 @@ def plot_first_positive_age_group_counts(
     for a in ax:
         a.spines['top'].set_visible(False)
         a.spines['right'].set_visible(False)
+        a.set_axisbelow(True)
         a.grid(axis='y')
-        a.set_ylim(0, None)
+        a.set_ylim(0, 1)
         a.set_xticks(np.arange(len(age_groups)))
-        a.set_xticklabels(age_groups, fontsize=12)
+        a.set_xticklabels(age_groups, fontsize=16)
+        a.tick_params(axis='y', labelsize=16)
 
     if real_data is not None:
         for a, (variant, _) in zip(ax, first_positive_dicts[0].items()):
@@ -756,12 +757,12 @@ def plot_first_positive_age_group_counts(
                 zorder=3
             )
 
-    fig.supylabel("Fraction of age group with first positive", fontsize=12)
+    fig.supylabel("Fraction of age group", fontsize=18)
 
     handles, labels = ax[0].get_legend_handles_labels()
     # move the real data handle to the second row
     handles = [handles[0], handles[-1]] + handles[1:-1]
-    fig.legend(handles=handles, loc='lower center', bbox_to_anchor=(0.5, -0.15), ncols=3, frameon=False, fontsize=10)
+    fig.legend(handles=handles, loc='lower center', bbox_to_anchor=(0.5, -0.23), ncols=2, frameon=False, fontsize=18)
     if save_path is not None:
         plt.savefig(save_path, bbox_inches='tight')
         plt.close(fig)

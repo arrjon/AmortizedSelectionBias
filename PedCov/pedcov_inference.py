@@ -293,7 +293,7 @@ if not 'gpu' in partition:
         # plt.show()
 
         fig = bf.diagnostics.calibration_ecdf(stan_posterior_samples, vd, variable_names=list(param_names.values()),
-                                              rank_ecdf_color=method_colors[0], label_fontsize=14,
+                                              rank_ecdf_color=method_colors[0], label_fontsize=18, tick_fontsize=16,
                                               stacked=True, difference=True, figsize=(5, 3))
         ax = fig.get_axes()
         for i, a in enumerate(ax):
@@ -306,8 +306,8 @@ if not 'gpu' in partition:
                 line.set_label(f'{list(param_names.values())[idx]}')
             #a.legend(ncols=5, loc='lower center', bbox_to_anchor=(0.5, -0.5), frameon=False)
             a.set_ylim(-0.4, 0.4)
-            a.set_title(titles[vd['selection_procedure'][0]], fontsize=14)
-            a.set_ylabel("MCMC ECDF difference")
+            a.set_title(titles[vd['selection_procedure'][0]], fontsize=18)
+            a.set_ylabel("MCMC ECDF difference", fontsize=18)
             #a.set_ylabel("")
             a.set_xlabel("")
         plt.tight_layout()
@@ -596,7 +596,7 @@ for vd in [validation_data_random, validation_data_pedcov, validation_data_adult
     # plt.show()
 
     fig = bf.diagnostics.calibration_ecdf(posterior_samples, vd, variable_names=list(param_names.values()),
-                                          rank_ecdf_color=method_colors[-1], label_fontsize=14,
+                                          rank_ecdf_color=method_colors[-1], label_fontsize=18, tick_fontsize=16,
                                           stacked=True, difference=True, figsize=(5, 3))
     ax = fig.get_axes()
     for i, a in enumerate(ax):
@@ -608,8 +608,8 @@ for vd in [validation_data_random, validation_data_pedcov, validation_data_adult
             line.set_color(parameter_colors[idx])
             line.set_label(f'{list(param_names.values())[idx]}')
         a.set_ylim(-0.4, 0.4)
-        a.set_title(titles[vd['selection_procedure'][0]], fontsize=14)
-        a.set_ylabel("NPE ECDF difference")
+        a.set_title(titles[vd['selection_procedure'][0]], fontsize=18)
+        a.set_ylabel("NPE ECDF difference", fontsize=18)
     plt.tight_layout()
     fig.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_ecdf_npe_{vd["selection_procedure"][0]}.pdf',
                 bbox_inches='tight')
@@ -755,7 +755,7 @@ for variant in variants:
 #%%
 if len(variants) == 2:
     fig, axis = plt.subplots(ncols=len(variants), sharex=True, sharey=True,
-                             figsize=(7, 3), layout='constrained')
+                             figsize=(7, 2.9), layout='constrained')
     axis[0], _ = sampling_parameter_cis_comparison(
             results=real_data_results['alpha'],
             methods={'posterior_samples': 'Bias-aware NPE', 'stan_posterior_samples': 'MCMC'},
@@ -782,9 +782,9 @@ if len(variants) == 2:
     for ax in axis:
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-    handles = [handles[2], handles[-2], handles[1], handles[-1], handles[0]]
-    fig.legend(handles=handles, loc='lower center', ncol=3, frameon=False,
-               fontsize=10, bbox_to_anchor=(0.5, -0.2))
+    handles = [handles[-2], handles[-1]]
+    fig.legend(handles=handles, loc='lower center', ncol=2, frameon=False,
+               fontsize=12, bbox_to_anchor=(0.5, -0.12))
     fig.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_real_CIs.pdf', bbox_inches='tight')
     plt.show()
 
