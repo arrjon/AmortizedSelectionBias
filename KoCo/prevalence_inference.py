@@ -298,6 +298,7 @@ for e_index in range(1, 6):
         log_prob = workflow.log_prob(batch)
         mode_idx = np.argmax(log_prob)
         posterior_mode.append(batch['prevalence_true'][mode_idx].item())
+    # posterior_mode = np.median(posterior_samples_real['prevalence_true'], axis=1).flatten()
 
     results_missing['unadjusted'][e_index-1] = error(
         np.array([pv['prevalence_subsample'] for pv in sim_out_missing]),
@@ -325,6 +326,7 @@ for e_index in range(1, 6):
     )
     logging.info(f"Error NPE: {np.median(results['NPE'][e_index - 1])}")
 
+#%%
 for missing, result in zip([True, False], [results_missing, results]):
     # Plot boxplot
     fig, ax = plt.subplots(figsize=(5, 2), layout='constrained')
@@ -347,17 +349,19 @@ for missing, result in zip([True, False], [results_missing, results]):
         bp["boxes"][0].set_label(labels[i])
 
     ax.set_xticks(np.arange(5))
-    ax.set_xticklabels([r'$R_1$', r'$R_2$', r'$R_3$', r'$R_4$', r'$R_5$'])
+    ax.set_xticklabels([r'$R_1$', r'$R_2$', r'$R_3$', r'$R_4$', r'$R_5$'], fontsize=13)
+    ax.tick_params(axis='y', labelsize=13)
     if missing:
-        ax.set_xlabel(r'Simulated round (with missingness)')
+        ax.set_xlabel(r'Simulated round (with missingness)', fontsize=15)
     else:
-        ax.set_xlabel(r'Simulated round')
-    ax.set_ylabel(r'Absolute error ($\%$)')
+        ax.set_xlabel(r'Simulated round', fontsize=15)
+    ax.set_ylabel(r'Absolute error ($\%$)', fontsize=15)
     ax.grid(axis='y')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.set_ylim(0, 3)
-    fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.15), frameon=False)
+    if not missing:
+        fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.17), frameon=False, fontsize=15)
     if missing:
         fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence_missing.pdf', bbox_inches='tight')
     else:
@@ -440,7 +444,7 @@ for i, samples in enumerate(list(results_real.values())[:-1]):  # exclude C2ST
     # Label each set of violin bodies for legend
     for body in parts['bodies']:
         body.set_color(colors[i])
-        body.set_alpha(1)
+        body.set_alpha(0.65)
         body.set_edgecolor('black')
     parts['cmedians'].set_color('black')
     for body in parts['bodies']:
@@ -449,18 +453,25 @@ for i, samples in enumerate(list(results_real.values())[:-1]):  # exclude C2ST
     logging.info(f"{labels[i]}: Median {np.median([samples[t].flatten()*100 for t in range(5)], axis=1)}%")
 
 ax.set_xticks(np.arange(5))
-ax.set_xticklabels([r'$R_1$', r'$R_2$', r'$R_3$', r'$R_4$', r'$R_5$'])
-ax.set_xlabel(r'KoCo19 Round')
-ax.set_ylabel('Estimated\nPrevalence'+r' ($\%$)')
+ax.set_xticklabels([r'$R_1$', r'$R_2$', r'$R_3$', r'$R_4$', r'$R_5$'], fontsize=13)
+ax.tick_params(axis='y', labelsize=13)
+ax.set_xlabel(r'KoCo19 Round', fontsize=15)
+ax.set_ylabel('Estimated\nPrevalence'+r' ($\%$)', fontsize=15)
+ax.set_ylim(0,15)
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
+ax.set_axisbelow(True)
 ax.grid(axis='y')
 ax.set_ylim(0, None)
-fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.15), frameon=False)
+#fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.15), frameon=False, fontsize=15)
 fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence_real.pdf', bbox_inches='tight')
 plt.show()
 
 #%%
+class ScalarFormatter1f(plt.ScalarFormatter):
+    def _set_format(self):
+        self.format = '%1.1f'
+
 bins = 20
 norm = mcolors.Normalize(vmin=0.5, vmax=1.0)
 cmap = mcolors.LinearSegmentedColormap.from_list(
@@ -491,10 +502,10 @@ for epoch_idx in range(1, 6):
             edgecolor=cmap(norm(bin_color[i]))
         )
 
-    ax[epoch_idx-1].set_xlabel(r"Prevalence ($\%$)")
+    ax[epoch_idx-1].set_xlabel(r"Prevalence ($\%$)", fontsize=15)
     if epoch_idx == 1:
-        ax[epoch_idx-1].set_ylabel("Posterior Density")
-    ax[epoch_idx-1].set_title(rf"Round $R_{epoch_idx}$")
+        ax[epoch_idx-1].set_ylabel("Posterior Density", fontsize=15)
+    ax[epoch_idx-1].set_title(rf"Round $R_{epoch_idx}$", fontsize=15)
     # remove top and right spines
     ax[epoch_idx-1].spines['top'].set_visible(False)
     ax[epoch_idx-1].spines['right'].set_visible(False)
@@ -502,17 +513,24 @@ for epoch_idx in range(1, 6):
     m_score = np.mean(results_real['C2ST'][epoch_idx-1])
     ax[epoch_idx-1].text(
         0.95, 0.95,
-        f"Mean C2ST={m_score:.2f}\np-value={c2st_result_real_random[epoch_idx-1][1]:.1f}",
+        f"Mean C2ST={m_score:.2f}\np-value={c2st_result_real_random[epoch_idx-1][1]:.2f}",
         horizontalalignment='right',
         verticalalignment='top',
         transform=ax[epoch_idx-1].transAxes,
-        fontsize=9,
+        fontsize=13,
     )
+    formatter = ScalarFormatter1f(useMathText=True)
+    formatter.set_powerlimits((0, 0))
+    ax[epoch_idx-1].yaxis.set_major_formatter(formatter)
+    ax[epoch_idx-1].tick_params(axis='y', labelsize=13)
+    ax[epoch_idx-1].tick_params(axis='x', labelsize=13)
 
 # add colorbar
 sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
 sm.set_array([])
-cbar = fig.colorbar(sm, ax=ax.ravel().tolist(), label="C2ST score\n(mean per bin)", fraction=0.02)
+cbar = fig.colorbar(sm, ax=ax.ravel().tolist(), fraction=0.02)
+cbar.ax.tick_params(labelsize=13)
+cbar.set_label("C2ST score\n(mean per bin)", fontsize=15)
 fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence_real_histograms.pdf', bbox_inches='tight')
 plt.show()
 
