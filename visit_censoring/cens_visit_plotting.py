@@ -229,57 +229,72 @@ def plot_params(
     # Beta rows (age, sex)
     # ------------------------------------------------------------
     idm_coef_key = 'splines' if idm_model == 'spl' else 'weibull'
+
+    # Build ordered list of (slot_key, color, zorder) to compute offsets once
+    _beta_slots = []
+    if show_cox:
+        _beta_slots.append('cox')
+    _beta_slots.append('idm')
+    _beta_slots.append('prior')
+    _beta_slots.append('npe1')
+    if has_second:
+        _beta_slots.append('npe2')
+    _bw = 0.15
+    _n = len(_beta_slots)
+    _offsets = (np.arange(_n) - (_n - 1) / 2) * _bw
+    _slot_offset = dict(zip(_beta_slots, _offsets))
+
     for row_id, beta in enumerate(beta_params):
         row_idx = row_id + 3
         for col_idx, e in enumerate(epochs):
             this_ax = ax[row_idx, col_idx]
             lc = row_idx == 3 and col_idx == 0
 
-            vals_naive = [baseline[e][f'beta{t}_{beta}']['naive_cox'] for t in transitions]
-            vals_idm   = [baseline[e][f'beta{t}_{beta}'][idm_coef_key] for t in transitions]
             x = np.arange(len(transitions))
 
             if show_cox:
-                this_ax.plot(x, vals_naive, marker='o', color=colors[0], zorder=3,
-                             label='Naive Cox' if lc else None)
-            this_ax.plot(x, vals_idm, marker='o', color=colors[1], zorder=4, alpha=0.75,
-                         label=idm_label if lc else None)
+                vals_naive = [baseline[e][f'beta{t}_{beta}']['naive_cox'] for t in transitions]
+                xc = x + _slot_offset['cox']
+                this_ax.plot(xc, vals_naive, marker='o', color=colors[0], zorder=3,
+                             linestyle='', label='Naive Cox' if lc else None)
+
+            vals_idm = [baseline[e][f'beta{t}_{beta}'][idm_coef_key] for t in transitions]
+            xi = x + _slot_offset['idm']
+            this_ax.plot(xi, vals_idm, marker='o', color=colors[1], zorder=4, alpha=0.75,
+                         linestyle='', label=idm_label if lc else None)
 
             q = [prior_summary[f'beta{t}_{beta}'] for t in transitions]
             if q:
-                this_ax.fill_between(
-                    x,
-                    [q[i]['low'] for i in range(len(transitions))],
-                    [q[i]['high'] for i in range(len(transitions))],
-                    color='black', alpha=0.15,
-                    label='Prior 95% interval' if lc else None,
-                    zorder=1,
-                )
+                xp = x + _slot_offset['prior']
+                for i, qi in enumerate(q):
+                    center = (qi['low'] + qi['high']) / 2
+                    this_ax.errorbar(
+                        xp[i], center,
+                        yerr=[[center - qi['low']], [qi['high'] - center]],
+                        fmt='none', color='black', alpha=0.4, capsize=3, linewidth=2,
+                        label='Prior 95% interval' if (lc and i == 0) else None,
+                        zorder=1,
+                    )
 
-            for ps_sum, ps_color, ps_name, zo in [
-                (posterior_summary,   npe_color,   npe_name,   3),
-                (posterior_summary_2, npe_color_2, npe_name_2, 2),
+            for slot, ps_sum, ps_color, ps_name, zo in [
+                ('npe1', posterior_summary,   npe_color,   npe_name,   3),
+                ('npe2', posterior_summary_2, npe_color_2, npe_name_2, 2),
             ]:
-                if ps_sum is None:
+                if ps_sum is None or slot not in _slot_offset:
                     continue
                 q2 = [ps_sum[f'beta{t}_{beta}'] for t in transitions]
                 if not q2:
                     continue
-                this_ax.fill_between(
-                    x,
-                    [q2[i]['low'][col_idx] for i in range(len(transitions))],
-                    [q2[i]['high'][col_idx] for i in range(len(transitions))],
-                    color=ps_color, alpha=0.3,
-                    label=f'{ps_name} posterior 95% CI' if lc else None,
-                    zorder=zo,
-                )
-                this_ax.plot(
-                    x,
-                    [q2[i]['median'][col_idx] for i in range(len(transitions))],
-                    linestyle='--', color=ps_color,
-                    label=f'{ps_name} posterior median' if lc else None,
-                    zorder=5,
-                )
+                xn = x + _slot_offset[slot]
+                for i, qi in enumerate(q2):
+                    med = qi['median'][col_idx]
+                    this_ax.errorbar(
+                        xn[i], med,
+                        yerr=[[med - qi['low'][col_idx]], [qi['high'][col_idx] - med]],
+                        fmt='o', color=ps_color, alpha=0.7, capsize=3, linewidth=2,
+                        label=f'{ps_name} posterior 95% CI' if (lc and i == 0) else None,
+                        zorder=zo,
+                    )
 
             this_ax.set_xticks(x)
             this_ax.set_xticklabels(transitions)
