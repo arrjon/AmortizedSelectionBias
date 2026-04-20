@@ -7,11 +7,17 @@
 
 ## Abstract
 
-Selection bias arises when the probability that an observation enters a dataset depends on variables related to the quantities of interest, leading to systematic distortions in estimation and uncertainty quantification. For example, in epidemiological or survey settings, individuals with certain outcomes may be more likely to be included, resulting in biased prevalence estimates with potentially substantial downstream impact. Classical corrections, such as inverse-probability weighting or explicit likelihood-based models of the selection process, rely on restrictive parametric assumptions and tractable likelihoods, which limits their applicability in complex stochastic models with latent dynamics or high-dimensional structure.
+Selection bias arises when the probability that an observation enters a dataset depends on variables related to the quantities of interest, leading to systematic distortions in estimation and uncertainty quantification. 
+For example, in epidemiological or survey settings, individuals with certain outcomes may be more likely to be included, resulting in biased prevalence estimates with potentially substantial downstream impact.
 
-Simulation-based inference enables Bayesian analysis without tractable likelihoods but typically assumes missingness at random and therefore fails when selection depends on unobserved outcomes or covariates. Here, we develop a bias-aware simulation-based inference framework that explicitly incorporates selection into neural posterior estimation. By embedding the selection mechanism directly into the generative simulator, the approach enables amortized Bayesian inference without requiring tractable likelihoods. Crucially, this recasting of selection bias as part of the simulation process allows us to both obtain debiased estimates and explicitly test for the presence of bias. The framework integrates diagnostics to detect discrepancies between simulated and observed data and to assess posterior calibration.
+Classical corrections, such as inverse-probability weighting or explicit likelihood-based models of the selection process, rely on tractable likelihoods, which limits their applicability in complex stochastic models with latent dynamics or high-dimensional structure.
+Simulation-based inference enables Bayesian analysis without tractable likelihoods but typically assumes missingness at random and thus fails when selection depends on unobserved outcomes or covariates. 
 
-The method recovers well-calibrated posterior distributions across three statistical applications with diverse selection mechanisms, including settings in which likelihood-based approaches yield biased estimates. These results recast the correction of selection bias as a simulation problem and establish simulation-based inference as a practical and testable strategy for parameter estimation under systematic selection bias.
+Here, we develop a bias-aware simulation-based inference framework that explicitly incorporates selection into neural posterior estimation.
+By embedding the selection mechanism directly into the generative simulator, the approach enables amortized Bayesian inference without requiring tractable likelihoods. 
+This recasting of selection bias as part of the simulation process allows us to both obtain debiased estimates and explicitly test for the presence of bias. The framework integrates diagnostics to detect discrepancies between simulated and observed data and to assess posterior calibration.
+
+The method recovers well-calibrated posterior distributions across three statistical applications with diverse selection mechanisms, including settings in which likelihood-based approaches yield biased estimates. These results recast the correction of selection bias as a simulation problem and establish simulation-based inference as a practical and testable strategy for parameter estimation under selection bias.
 
 ---
 
