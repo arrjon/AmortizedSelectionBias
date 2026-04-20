@@ -11,6 +11,7 @@ import pickle
 from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.patches import Patch
 from joblib import Parallel, delayed
 
 import numpy as np
@@ -299,12 +300,16 @@ if not 'gpu' in partition:
         for i, a in enumerate(ax):
             a.get_legend().remove()
             lines = a.get_lines()
+            handles = []
             for idx, line in enumerate(lines):
                 if list(param_names.keys())[idx] in ['beta', 'delta']:
                     line.remove()
+                    continue
                 line.set_color(parameter_colors[idx])
-                line.set_label(f'{list(param_names.values())[idx]}')
-            #a.legend(ncols=5, loc='lower center', bbox_to_anchor=(0.5, -0.5), frameon=False)
+                line.set_label(list(param_names.values())[idx])
+                handles.append(Patch(facecolor=parameter_colors[idx], label=rf'{list(param_names.values())[idx]}'))
+            handles += [Patch(facecolor='grey', label=r'$95\%$ Confidence Bands')]
+            #a.legend(handles=handles, ncols=5, loc='lower center', bbox_to_anchor=(0.5, -0.9), frameon=False, fontsize=18)
             a.set_ylim(-0.4, 0.4)
             a.set_title(titles[vd['selection_procedure'][0]], fontsize=18)
             a.set_ylabel("MCMC ECDF difference", fontsize=18)
@@ -314,6 +319,7 @@ if not 'gpu' in partition:
         fig.savefig(BASE / 'plots' / f'{scenario_name}_ecdf_stan_{vd["selection_procedure"][0]}.pdf', bbox_inches='tight')
         #fig.savefig(BASE / 'plots' / f'{scenario_name}_ecdf_legend.pdf', bbox_inches='tight')
         plt.show()
+        #break
 
 # %% Neural Posterior Estimation
 if len(variants) == 1:
