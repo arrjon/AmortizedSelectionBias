@@ -1,20 +1,62 @@
-# Paper Story
+# Overcoming Selection Bias in Statistical Studies With Amortized Bayesian Inference
 
-## Prevalence Example
-- simple to show bias on simulated data set
-- missingness + selection creates a joint bias we can correct for (see simulated data)
-- application on real data 
-- verification with C2ST, how reliable we are per epoch (only appendix)
+**Jonas Arruda, Sophie Chervet, Paula Staudt, Andreas Wieser, Michael Hoelscher, Isabelle Sermet-Gaudelus, Nadine Binder, Lulla Opatowski, Jan Hasenauer**
 
-## Visit Censoring Example
-- more complex example with longitudinal data
-- train model on censored and non-censored data to show bias via SBC (not only a point estimate for the bias, but checking the whole distribution)
-- application on real data and comparison with other methods (naive, weibull, splines), maybe not show splines for easier comparison
-- verification on real data with C2ST, show that we can detect bias if model is trained on un-censored data but applied to censored data
 
-## PedCovid Example
-- real world example with complex selection mechanism
-- to illustrate the bias, show SBC with MCMC
-- train one model on multiple selection mechanisms to show unbiased for all scenarios with SBC
-- application on real data
-- verification with C2ST again?
+---
+
+## Abstract
+
+Selection bias arises when the probability that an observation enters a dataset depends on variables related to the quantities of interest, leading to systematic distortions in estimation and uncertainty quantification. For example, in epidemiological or survey settings, individuals with certain outcomes may be more likely to be included, resulting in biased prevalence estimates with potentially substantial downstream impact. Classical corrections, such as inverse-probability weighting or explicit likelihood-based models of the selection process, rely on restrictive parametric assumptions and tractable likelihoods, which limits their applicability in complex stochastic models with latent dynamics or high-dimensional structure.
+
+Simulation-based inference enables Bayesian analysis without tractable likelihoods but typically assumes missingness at random and therefore fails when selection depends on unobserved outcomes or covariates. Here, we develop a bias-aware simulation-based inference framework that explicitly incorporates selection into neural posterior estimation. By embedding the selection mechanism directly into the generative simulator, the approach enables amortized Bayesian inference without requiring tractable likelihoods. Crucially, this recasting of selection bias as part of the simulation process allows us to both obtain debiased estimates and explicitly test for the presence of bias. The framework integrates diagnostics to detect discrepancies between simulated and observed data and to assess posterior calibration.
+
+The method recovers well-calibrated posterior distributions across three statistical applications with diverse selection mechanisms, including settings in which likelihood-based approaches yield biased estimates. These results recast the correction of selection bias as a simulation problem and establish simulation-based inference as a practical and testable strategy for parameter estimation under systematic selection bias.
+
+---
+
+## Repository Structure
+
+```
+AmortizedSelectionBias/
+├── KoCo/                    # Prevalence estimation (KoCo19 Study)
+├── visit_censoring/         # Dementia progression (Framingham Heart Study)
+└── PedCov/                  # COVID-19 child-depended inclusion (PedCovid Study)
+```
+
+### Examples
+
+| Directory | Description |
+|---|---|
+| `KoCo/` | Prevalence estimation under outcome-dependent missingness and selection. Demonstrates bias on simulated data and applies the framework to real seroprevalence data. |
+| `visit_censoring/` | Longitudinal illness-death model with visit-censoring. Validates debiasing via simulation-based calibration (SBC) and compares against naive, and spline-based approaches. |
+| `PedCov/` | Real-world example with a complex, multi-mechanism selection process. Trains a single amortized model across selection scenarios and validates against MCMC. |
+
+---
+
+## Installation
+
+This project uses [uv](https://github.com/astral-sh/uv) for dependency management. Python 3.11 or later is required.
+
+```bash
+# Install uv (if not already installed)
+curl -Lsf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies
+uv sync
+```
+
+Some examples additionally require R and R packages (Stan etc.).
+They can be installed via the `install_requirements.py` script:
+
+```bash
+uv run python install_requirements.py
+```
+---
+
+## Dependencies
+
+- [BayesFlow](https://bayesflow.org/) — amortized Bayesian inference via neural posterior estimation
+- [JAX](https://github.com/google/jax) — deep learning backend
+- [CmdStanPy](https://github.com/stan-dev/cmdstanpy) — Stan interface for likelihood-based comparisons
+- [rpy2](https://rpy2.github.io) — R to Python interface
