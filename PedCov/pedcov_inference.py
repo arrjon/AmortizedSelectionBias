@@ -789,62 +789,63 @@ if len(variants) == 2:
     plt.show()
 
 #%% apply C2ST
-logging.info("Plotting C2ST histograms for real data")
-bins = 20
-norm = mcolors.Normalize(vmin=0.5, vmax=1.0)
-cmap = mcolors.LinearSegmentedColormap.from_list(
-    "Reds_trunc",
-    plt.cm.Reds(np.linspace(0.1, 1.0, 256))
-)
-fig, ax = plt.subplots(nrows=len(param_names), ncols=len(variants), sharey='row', sharex='row', figsize=(10, 12),
-                       layout='constrained')
-for p_i, (p_name, p_name_pretty) in enumerate(param_names.items()):
-    for v_i, variant in enumerate(variants):
-        # compute bin assignment
-        x = real_data_results[variant]['posterior_samples'][p_name].flatten()
-        counts, bin_edges = np.histogram(x, bins=bins, density=True)
-        bin_idx = np.digitize(x, bin_edges) - 1
+if len(c2st_result_real_random) > 0:
+    logging.info("Plotting C2ST histograms for real data")
+    bins = 20
+    norm = mcolors.Normalize(vmin=0.5, vmax=1.0)
+    cmap = mcolors.LinearSegmentedColormap.from_list(
+        "Reds_trunc",
+        plt.cm.Reds(np.linspace(0.1, 1.0, 256))
+    )
+    fig, ax = plt.subplots(nrows=len(param_names), ncols=len(variants), sharey='row', sharex='row', figsize=(10, 12),
+                           layout='constrained')
+    for p_i, (p_name, p_name_pretty) in enumerate(param_names.items()):
+        for v_i, variant in enumerate(variants):
+            # compute bin assignment
+            x = real_data_results[variant]['posterior_samples'][p_name].flatten()
+            counts, bin_edges = np.histogram(x, bins=bins, density=True)
+            bin_idx = np.digitize(x, bin_edges) - 1
 
-        # compute mean color per bin
-        bin_color = np.array([
-            np.mean(real_data_results[variant]['C2ST'][bin_idx == i]) if np.any(bin_idx == i) else 0
-            for i in range(bins)
-        ])
+            # compute mean color per bin
+            bin_color = np.array([
+                np.mean(real_data_results[variant]['C2ST'][bin_idx == i]) if np.any(bin_idx == i) else 0
+                for i in range(bins)
+            ])
 
-        # plot histogram manually
-        for i in range(bins):
-            ax[p_i, v_i].bar(
-                bin_edges[i],
-                counts[i],
-                width=bin_edges[i + 1] - bin_edges[i],
-                align="edge",
-                color=cmap(norm(bin_color[i])),
-                edgecolor=cmap(norm(bin_color[i]))
-            )
+            # plot histogram manually
+            for i in range(bins):
+                ax[p_i, v_i].bar(
+                    bin_edges[i],
+                    counts[i],
+                    width=bin_edges[i + 1] - bin_edges[i],
+                    align="edge",
+                    color=cmap(norm(bin_color[i])),
+                    edgecolor=cmap(norm(bin_color[i]))
+                )
 
-        ax[p_i, v_i].set_xlabel(p_name_pretty)
-        if v_i == 0:
-            ax[p_i, v_i].set_ylabel("Density")
-        if p_i == 0:
-            ax[p_i, v_i].set_title(rf"Variant {variant}")
-            m_score = np.mean(real_data_results[variant]['C2ST'])
-            ax[p_i, v_i].text(
-                0.95, 0.95,
-                f"Mean C2ST={m_score:.2f}\np-value={c2st_result_real_random[v_i][1]:.1f}",
-                horizontalalignment='right',
-                verticalalignment='top',
-                transform=ax[p_i, v_i].transAxes,
-                fontsize=9,
-            )
-        # remove top and right spines
-        ax[p_i, v_i].spines['top'].set_visible(False)
-        ax[p_i, v_i].spines['right'].set_visible(False)
+            ax[p_i, v_i].set_xlabel(p_name_pretty)
+            if v_i == 0:
+                ax[p_i, v_i].set_ylabel("Density")
+            if p_i == 0:
+                ax[p_i, v_i].set_title(rf"Variant {variant}")
+                m_score = np.mean(real_data_results[variant]['C2ST'])
+                ax[p_i, v_i].text(
+                    0.95, 0.95,
+                    f"Mean C2ST={m_score:.2f}\np-value={c2st_result_real_random[v_i][1]:.2f}",
+                    horizontalalignment='right',
+                    verticalalignment='top',
+                    transform=ax[p_i, v_i].transAxes,
+                    fontsize=9,
+                )
+            # remove top and right spines
+            ax[p_i, v_i].spines['top'].set_visible(False)
+            ax[p_i, v_i].spines['right'].set_visible(False)
 
-# add colorbar
-sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
-sm.set_array([])
-cbar = fig.colorbar(sm, ax=ax.ravel().tolist(), label="C2ST score (mean per bin)", fraction=0.02)
-fig.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_real_c2st_histograms.pdf', bbox_inches='tight')
-plt.show()
+    # add colorbar
+    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax.ravel().tolist(), label="C2ST score (mean per bin)", fraction=0.02)
+    fig.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_real_c2st_histograms.pdf', bbox_inches='tight')
+    plt.show()
 
 logging.info("Done!")
