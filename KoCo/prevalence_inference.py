@@ -260,7 +260,6 @@ for e_index in range(1, 6):
         delayed(simulate_population)(
             epoch_index=e_index,
             n_out=int(full_population_size*0.1),
-            use_real_outcomes=False,
             with_missingness=True,
             bootstrap_resamples=0,
             seed=i_test
@@ -271,7 +270,6 @@ for e_index in range(1, 6):
         delayed(simulate_population)(
             epoch_index=e_index,
             n_out=int(full_population_size * 0.1),
-            use_real_outcomes=False,
             with_missingness=False,
             bootstrap_resamples=0,
             seed=i_test
@@ -370,6 +368,7 @@ for missing, result in zip([True, False], [results_missing, results]):
 
 #%%
 logging.info('Inference on real data...')
+real_data_path = lambda epoch_index: f'data/koco19_T{epoch_index}_prepared.csv'
 results_real = {
     'unadjusted': [],
     'adjusted': [],
@@ -385,7 +384,7 @@ for e_index in range(1, 6):
     sim_out = simulate_population(  # no simulation, real outcomes used
         epoch_index=e_index,
         n_out=int(full_population_size),
-        use_real_outcomes=True,
+        real_data_path=real_data_path(e_index),
         bootstrap_resamples=100,
     )
     results_real['unadjusted'].append(sim_out['prevalence_subsample'])
@@ -394,7 +393,7 @@ for e_index in range(1, 6):
     sim_out = simulate_population(  # no simulation, real outcomes used
         epoch_index=e_index,
         n_out=int(full_population_size),
-        use_real_outcomes=True,
+        real_data_path=real_data_path(e_index),
         bootstrap_resamples=0,  # so the real df is returned
     )
     real_data_df = sim_out['subsample']

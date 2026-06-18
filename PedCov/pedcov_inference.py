@@ -622,21 +622,24 @@ for vd in [validation_data_random, validation_data_pedcov, validation_data_adult
     plt.show()
 
 #%%
-# create test data to validate code
-# test_params = prior("alpha")
-# test_df = simulator_alpha(**test_params, return_df=True)['sim_data_df']
-# test_df.to_csv(BASE / 'data' / 'test_data_alpha.txt', sep=' ', index=False)
-#
-# test_params = prior("omicron")
-# test_df = simulator_omicron(**test_params, return_df=True)['sim_data_df']
-# test_df.to_csv(BASE / 'data' / 'test_data_omicron.txt', sep=' ', index=False)
-
-# specify the PedCov path
+# specify the PedCov data path
 data_path_alpha = BASE / 'data' / 'real_data_alpha.txt'
 data_path_omicron = BASE / 'data' / 'real_data_omicron.txt'
+data_paths = {'alpha': data_path_alpha, 'omicron': data_path_omicron}
 num_samples = 1000
 
-if os.path.exists(BASE / 'data' / f'alpha_sim_data.npy'):
+# If the data folder itself is missing, generate synthetic data from the simulator
+if not (BASE / 'data').exists():
+    (BASE / 'data').mkdir(parents=True)
+    synthetic_simulators = {'alpha': simulator_alpha, 'omicron': simulator_omicron}
+    for variant in variants:
+        logging.info(f"Data folder not found - generating synthetic data for '{variant}' from the simulator.")
+        test_params = prior(variant)
+        test_df = synthetic_simulators[variant](**test_params, return_df=True)['sim_data_df']
+        test_df.to_csv(data_paths[variant], sep=' ', index=False)
+
+prepared_data_available = all((BASE / 'data' / f'{variant}_sim_data.npy').exists() for variant in variants)
+if prepared_data_available:
     logging.info("Loading prepared real data and stan posterior samples from file")
     real_data_results = {}
     for variant in variants:

@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Dict, Tuple
+import logging
 
 import numpy as np
 import pandas as pd
@@ -8,6 +9,7 @@ from tqdm import tqdm
 
 
 BASE = Path(__file__).resolve().parent
+logging.basicConfig(level=logging.INFO)
 
 # Known population parameters of Munich (Pritsch et al., 2021)
 age_probs = {'0-19': 0.168, '20-34': 0.25, '35-49': 0.223, '50-64': 0.187, '65-79': 0.118, '80+': 0.054}
@@ -186,7 +188,8 @@ def oversample(
     bootstrap: bool = False,
     max_rake_iters: int = 100,
     rake_tol: float = 1e-6,
-    seed: int | None = None,
+    seed: int = None,
+    real_data_path: str = None,
 ) -> Tuple[pd.DataFrame | None, pd.DataFrame]:
     """
     Oversample rows from original KoCo19 data to match Munich (or other) population targets.
@@ -198,7 +201,10 @@ def oversample(
     """
 
     rng = np.random.default_rng(seed)
-    df = pd.read_csv(BASE / 'data' / f"koco19_T{epoch_index}_prepared.csv")
+    if real_data_path is None:
+        df = pd.read_csv(BASE / f"koco19_T{epoch_index}_mock.csv")
+    else:
+        df = pd.read_csv(BASE / real_data_path)
     n0 = len(df)
 
     # Expect columns: 'age_group', 'sex', 'hh_size', 'birth_country'
@@ -263,7 +269,7 @@ def oversample(
         rel_change = np.max(np.abs(weights - old) / (np.abs(old) + eps))
         if rel_change < rake_tol:
             break
-        #print(f"Raking converged in {rake_i+1} iterations (rel_change={rel_change:.6f})")
+        #logging.info(f"Raking converged in {rake_i+1} iterations (rel_change={rel_change:.6f})")
 
     # final normalize and sample
     weights = np.clip(weights, 0.0, np.inf)
@@ -355,10 +361,10 @@ def simulate_population(
     # priors for infection (logistic OR model)
     intercept_logodds: Tuple[float, float] = (-3.0, 1.0),
     coef_logor: Tuple[float, float] = (0.0, 0.5),
-    use_real_outcomes: bool = False,
+    real_data_path: str  = None,
     with_missingness: bool = True,
     bootstrap_resamples: int = 0,  #  0 is no bootstrap, >1 is number of bootstrap resamples
-    seed: int | None = None,
+    seed: int = None,
 ) -> Dict:
     """
     Pipeline:
@@ -368,6 +374,7 @@ def simulate_population(
       4) Simulate observed test results via simulate_test_results().
       5) Compute prevalence (true and observed) and return outputs.
     """
+    use_real_outcomes = real_data_path is not None
     if bootstrap_resamples > 0:
         bootstrap = True
     else:
@@ -386,6 +393,7 @@ def simulate_population(
             epoch_index=epoch_index,
             bootstrap=bootstrap,
             seed=None if seed is None else seed + 1 + b_i,
+            real_data_path=real_data_path,
         )
 
         if not use_real_outcomes:
@@ -501,11 +509,10 @@ def simulate_population(
 if __name__ == "__main__":
     # Example usage
     for e_index in range(1, 6):
-        print(f"\n--- Epoch T{e_index} ---")
+        logging.info(f"\n--- Epoch T{e_index} ---")
         sim_out = simulate_population(
             epoch_index=e_index,
             n_out=int(full_population_size),
-            use_real_outcomes=True,
             bootstrap_resamples=5
         )
 
@@ -513,11 +520,11 @@ if __name__ == "__main__":
         prevalence_subsample_weighted = np.mean(sim_out["prevalence_subsample_weighted"])
 
         subsample_df = sim_out["subsample"]
-        print(f"True prevalence: {sim_out['prevalence_true']*100:.2f}%")
-        print(f"Prevalence (Subsample): {prevalence_subsample*100:.2f}%; Bias: {(prevalence_subsample-sim_out['prevalence_true'])*100:.2f}")
-        print(f"Weighted prevalence: {prevalence_subsample_weighted*100:.2f}%; Bias: {(prevalence_subsample_weighted-sim_out['prevalence_true'])*100:.2f}")
+        logging.info(f"True prevalence: {sim_out['prevalence_true']*100:.2f}%")
+        logging.info(f"Prevalence (Subsample): {prevalence_subsample*100:.2f}%; Bias: {(prevalence_subsample-sim_out['prevalence_true'])*100:.2f}")
+        logging.info(f"Weighted prevalence: {prevalence_subsample_weighted*100:.2f}%; Bias: {(prevalence_subsample_weighted-sim_out['prevalence_true'])*100:.2f}")
 
-    print("\n--- Simulation Study over all epochs ---")
+    logging.info("\n--- Simulation Study over all epochs ---")
     n_sims = 100
     errs = []
     errs_naive = []
@@ -554,15 +561,15 @@ if __name__ == "__main__":
     bias_naive, mse_naive, rmse_naive, mae_naive = metrics(errs_naive)
 
 
-    print("Weighted estimator:")
-    print(f"  Bias  = {bias_adj:.4f}")
-    print(f"  MAE   = {mae_adj:.4f}")
-    print(f"  RMSE  = {rmse_adj:.4f}")
+    logging.info("Weighted estimator:")
+    logging.info(f"  Bias  = {bias_adj:.4f}")
+    logging.info(f"  MAE   = {mae_adj:.4f}")
+    logging.info(f"  RMSE  = {rmse_adj:.4f}")
 
-    print("\nNaive estimator:")
-    print(f"  Bias  = {bias_naive:.4f}")
-    print(f"  MAE   = {mae_naive:.4f}")
-    print(f"  RMSE  = {rmse_naive:.4f}")
+    logging.info("\nNaive estimator:")
+    logging.info(f"  Bias  = {bias_naive:.4f}")
+    logging.info(f"  MAE   = {mae_naive:.4f}")
+    logging.info(f"  RMSE  = {rmse_naive:.4f}")
 
     plt.figure()
     plt.hist(np.array(errs_naive), bins=20, alpha=0.5, label='Naive Estimated Prevalence', color='orange')
