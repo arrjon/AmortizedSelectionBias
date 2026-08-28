@@ -487,7 +487,7 @@ if 'real' not in mrp_cache:
 fig, ax = plt.subplots(figsize=(5, 2), layout='constrained')
 width = 0.2
 offsets = [-width, 0, width]
-labels = ['Unadjusted', 'MRP', 'Bias-aware NPE']
+labels = ['Unadjusted', 'Poststratification', 'Bias-aware NPE']
 
 for i, samples in enumerate([results_real[k] for k in ('unadjusted', 'MRP', 'NPE')]):
     pos = np.arange(5) + offsets[i]
@@ -521,7 +521,7 @@ ax.spines['right'].set_visible(False)
 ax.set_axisbelow(True)
 ax.grid(axis='y')
 ax.set_ylim(0, None)
-#fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.15), frameon=False, fontsize=15)
+#fig.legend(loc='lower center', ncols=3, bbox_to_anchor=(0.5, -0.2), frameon=False, fontsize=15)
 fig.savefig(BASE / 'plots' / f'{network_name}_koco19_prevalence_real.pdf', bbox_inches='tight')
 plt.show()
 
