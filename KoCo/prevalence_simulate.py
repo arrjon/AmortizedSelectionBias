@@ -182,6 +182,57 @@ def rogan_gladen_correction(
     return prev_rg
 
 
+def rake(
+    df: pd.DataFrame,
+    seed: int | None = None,
+    max_iters: int = 100,
+    tol: float = 1e-6,
+) -> np.ndarray:
+    """Raking/IPF weights (summing to 1) matching the Munich marginal population targets.
+
+    Missing covariates are imputed from the target marginals, so the weights depend on `seed`.
+    """
+    rng = np.random.default_rng(seed)
+    targets = {  # Munich population targets
+        "age_group": age_probs,
+        "sex": sex_probs,
+        "hh_size": hh_size_probs,
+        "birth_country": country_probs,
+    }
+    missing = [c for c in targets if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns: {missing}")
+
+    # Impute missing data via target proportions, otherwise a row matches no target category
+    masks = {}
+    for col, probs in targets.items():
+        vals = df[col].to_numpy(dtype=object, copy=True)
+        miss = pd.isna(vals)
+        if miss.any():
+            vals[miss] = rng.choice(list(probs.keys()), size=miss.sum(), p=list(probs.values()))
+        masks[col] = {cat: vals == cat for cat in probs}
+
+    eps = 1e-12
+    weights = np.ones(len(df), dtype=float)
+    for _ in range(max_iters):
+        old = weights.copy()
+        for col, target_probs in targets.items():
+            cur_tot = weights.sum() + eps  # hoisted: categories are disjoint, only the total drifts
+            for cat, tgt in target_probs.items():
+                mask = masks[col][cat]
+                if mask.any():  # multiplicative adjustment per category
+                    weights[mask] *= tgt / max(weights[mask].sum() / cur_tot, eps)
+        rel_change = np.max(np.abs(weights - old) / (np.abs(old) + eps))
+        if rel_change < tol:
+            break
+
+    weights = np.clip(weights, 0.0, np.inf)
+    s = weights.sum()
+    if not np.isfinite(s) or s <= 0:
+        raise ValueError("Sampling weights are degenerate; check priors/targets and data categories.")
+    return weights / s
+
+
 def oversample(
     n_out: int,
     epoch_index: int,
@@ -217,67 +268,12 @@ def oversample(
         idx = rng.choice(np.arange(n0), size=n0, replace=True)
         df = df.iloc[idx].reset_index(drop=True)
 
-    targets = {  # Munich population targets
-        "age_group": age_probs,
-        "sex": sex_probs,
-        "hh_size": hh_size_probs,
-        "birth_country": country_probs,
-    }
-
-    # Impute missing data via target proportions
-    for col, probs in targets.items():
-         miss = df[col].isna()
-         if miss.any():
-             df[col + '_filled'] = df[col].copy()
-             df.loc[miss, col+'_filled'] = rng.choice(
-                 list(probs.keys()),
-                 size=miss.sum(),
-                 p=list(probs.values())
-             )
-
     if n_out == n0:
         return None, df
     elif n_out < n0:
         raise ValueError(f"n_out ({n_out}) must be larger than the original data size ({n0}).")
-    weights = np.ones(n0, dtype=float)
 
-    eps = 1e-12
-    for rake_i in range(max_rake_iters):
-        old = weights.copy()
-
-        for col, target_probs in targets.items():
-            # current weighted proportions for categories in target
-            cur_tot = np.sum(weights) + eps
-            cur = {}
-            if col+'_filled' in df.columns:
-                use_col = col+'_filled'
-            else:
-                use_col = col
-            for cat in target_probs.keys():
-                mask = (df[use_col] == cat)
-                cur[cat] = np.sum(weights[mask]) / cur_tot
-
-            # multiplicative adjustment per category
-            for cat, tgt in target_probs.items():
-                c = max(cur.get(cat, 0.0), eps)
-                adj = tgt / c
-                mask = (df[use_col] == cat)
-                if np.any(mask):
-                    weights[mask] *= adj
-
-        # convergence check
-        rel_change = np.max(np.abs(weights - old) / (np.abs(old) + eps))
-        if rel_change < rake_tol:
-            break
-        #logging.info(f"Raking converged in {rake_i+1} iterations (rel_change={rel_change:.6f})")
-
-    # final normalize and sample
-    weights = np.clip(weights, 0.0, np.inf)
-    s = weights.sum()
-    if not np.isfinite(s) or s <= 0:
-        raise ValueError("Sampling weights are degenerate; check priors/targets and data categories.")
-
-    p = weights / s
+    p = rake(df, seed=seed, max_iters=max_rake_iters, tol=rake_tol)
     idx = rng.choice(np.arange(n0), size=n_out, replace=True, p=p)
 
     out = df.iloc[idx]
