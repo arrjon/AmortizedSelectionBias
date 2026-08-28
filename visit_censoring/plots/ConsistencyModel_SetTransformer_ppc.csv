@@ -1,0 +1,49 @@
+statistic,epoch,method,observed,pred_median,pred_2.5%,pred_97.5%,ppp_value
+Dementia diagnoses,epoch1,Bias-aware NPE,124.0,134.0,81.975,218.10000000000002,0.78
+Dementia diagnoses,epoch1,NPE (no selection model),124.0,265.5,133.875,404.07500000000005,0.040000000000000036
+Dementia diagnoses,epoch1,Splines IDM,124.0,32.0,7.0,80.0,0.0
+Dementia diagnoses,epoch2,Bias-aware NPE,91.0,113.0,61.975,197.07500000000002,0.54
+Dementia diagnoses,epoch2,NPE (no selection model),91.0,144.5,54.95,269.025,0.27
+Dementia diagnoses,epoch2,Splines IDM,91.0,81.0,46.975,136.10000000000002,0.71
+Dementia diagnoses,epoch3,Bias-aware NPE,101.0,117.0,64.9,207.025,0.6599999999999999
+Dementia diagnoses,epoch3,NPE (no selection model),101.0,214.0,91.0,420.0,0.1100000000000001
+Dementia diagnoses,epoch3,Splines IDM,101.0,86.0,32.975,203.10000000000002,0.72
+Dementia diagnoses,epoch4,Bias-aware NPE,106.0,107.0,46.95,199.05,0.98
+Dementia diagnoses,epoch4,NPE (no selection model),106.0,177.0,60.975,397.2750000000001,0.43999999999999995
+Dementia diagnoses,epoch4,Splines IDM,106.0,113.0,76.975,182.0,0.73
+Deaths,epoch1,Bias-aware NPE,321.0,336.5,246.775,429.0,0.72
+Deaths,epoch1,NPE (no selection model),321.0,282.5,205.9,406.125,0.49
+Deaths,epoch1,Splines IDM,321.0,382.0,273.775,503.125,0.22999999999999998
+Deaths,epoch2,Bias-aware NPE,313.0,325.5,243.0,416.05,0.8400000000000001
+Deaths,epoch2,NPE (no selection model),313.0,200.0,139.925,301.1,0.04
+Deaths,epoch2,Splines IDM,313.0,300.0,229.8,399.3750000000001,0.81
+Deaths,epoch3,Bias-aware NPE,248.0,241.5,171.95,321.07500000000005,0.82
+Deaths,epoch3,NPE (no selection model),248.0,169.0,117.925,302.3750000000001,0.15
+Deaths,epoch3,Splines IDM,248.0,265.5,166.975,393.225,0.8200000000000001
+Deaths,epoch4,Bias-aware NPE,263.0,342.0,247.0,444.025,0.1399999999999999
+Deaths,epoch4,NPE (no selection model),263.0,132.0,84.925,277.0,0.07
+Deaths,epoch4,Splines IDM,263.0,243.0,168.0,337.20000000000005,0.73
+Deaths without diagnosis,epoch1,Bias-aware NPE,286.0,303.5,224.82500000000002,395.025,0.7
+Deaths without diagnosis,epoch1,NPE (no selection model),286.0,238.0,177.975,321.05,0.22
+Deaths without diagnosis,epoch1,Splines IDM,286.0,365.5,258.75,487.05,0.1200000000000001
+Deaths without diagnosis,epoch2,Bias-aware NPE,289.0,297.0,216.95,377.05,0.8200000000000001
+Deaths without diagnosis,epoch2,NPE (no selection model),289.0,182.0,122.925,275.07500000000005,0.04
+Deaths without diagnosis,epoch2,Splines IDM,289.0,270.0,201.975,360.20000000000005,0.67
+Deaths without diagnosis,epoch3,Bias-aware NPE,230.0,224.5,158.0,301.0,0.87
+Deaths without diagnosis,epoch3,NPE (no selection model),230.0,153.0,106.9,271.3500000000001,0.14
+Deaths without diagnosis,epoch3,Splines IDM,230.0,233.0,152.975,350.05,0.96
+Deaths without diagnosis,epoch4,Bias-aware NPE,228.0,309.0,223.95,407.07500000000005,0.09000000000000008
+Deaths without diagnosis,epoch4,NPE (no selection model),228.0,115.5,71.975,227.10000000000002,0.05
+Deaths without diagnosis,epoch4,Splines IDM,228.0,193.0,129.0,272.0,0.41
+Median death time [days],epoch1,Bias-aware NPE,1013.0,905.5,792.95,1027.5,0.1
+Median death time [days],epoch1,NPE (no selection model),1013.0,595.75,400.4125,790.025,0.0
+Median death time [days],epoch1,Splines IDM,1013.0,1050.0,946.875,1176.7875000000001,0.48
+Median death time [days],epoch2,Bias-aware NPE,1074.0,849.75,739.95,978.1125000000001,0.0
+Median death time [days],epoch2,NPE (no selection model),1074.0,408.0,224.875,612.7875,0.0
+Median death time [days],epoch2,Splines IDM,1074.0,1024.25,931.975,1121.7875000000001,0.34
+Median death time [days],epoch3,Bias-aware NPE,1117.5,878.25,765.9,1017.0375,0.0
+Median death time [days],epoch3,NPE (no selection model),1117.5,369.5,192.3125,608.9750000000003,0.0
+Median death time [days],epoch3,Splines IDM,1117.5,1072.25,894.9625,1203.075,0.49
+Median death time [days],epoch4,Bias-aware NPE,956.0,778.75,643.95,938.125,0.01
+Median death time [days],epoch4,NPE (no selection model),956.0,293.0,120.85000000000001,607.5875,0.0
+Median death time [days],epoch4,Splines IDM,956.0,961.0,831.875,1067.075,0.9099999999999999

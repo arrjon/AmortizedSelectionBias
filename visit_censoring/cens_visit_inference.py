@@ -69,6 +69,17 @@ std_min = 1.0
 shape_mean = 1.0  # exponential as baseline
 shape_cv = 0.25
 shape_params = compute_gamma_params(shape_mean, cv=shape_cv)
+
+_a_mean = []
+for e in epochs:
+    _a_mean.append(np.mean(baseline[e]['H01']['cox']['haz']))
+    _a_mean.append(np.mean(baseline[e]['H02']['cox']['haz']))
+    _a_mean.append(np.mean(baseline[e]['H12']['cox']['haz']))
+    _a_mean.append(np.mean(baseline[e]['H01']['spl']['haz']))
+    _a_mean.append(np.mean(baseline[e]['H02']['spl']['haz']))
+    _a_mean.append(np.mean(baseline[e]['H12']['spl']['haz']))
+print(np.mean(_a_mean))
+
 a_mean = 0.0003
 priors = {
     'a01': compute_gamma_params(a_mean, cv=cv),
@@ -185,26 +196,26 @@ if job_array_id == -1:  # test run
 elif job_array_id % 4 == 0:
     BATCH_SIZE = 64
     EPOCHS = 300
-    summary_network = bf.networks.SetTransformer(summary_dim=len(param_names) * 2)
+    summary_network = bf.networks.SetTransformer(summary_dim=len(param_names) * 2, num_inducing_points=64)
     inference_network = bf.networks.FlowMatching(subnet_kwargs=dict(dropout=0.1))
     network_name = 'FlowMatching_SetTransformer'
 elif job_array_id % 4 == 1:
     BATCH_SIZE = 64
     EPOCHS = 300
-    summary_network = bf.networks.SetTransformer(summary_dim=len(param_names) * 2)
+    summary_network = bf.networks.SetTransformer(summary_dim=len(param_names) * 2, num_inducing_points=64)
     inference_network = bf.networks.DiffusionModel(subnet_kwargs=dict(dropout=0.1))
     network_name = 'DiffusionModel_SetTransformer'
 elif job_array_id % 4 == 2:
     BATCH_SIZE = 64
     EPOCHS = 300
-    summary_network = bf.networks.SetTransformer(summary_dim=len(param_names) * 2)
+    summary_network = bf.networks.SetTransformer(summary_dim=len(param_names) * 2, num_inducing_points=64)
     inference_network = bf.networks.ConsistencyModel(total_steps=EPOCHS * (n_train_data // BATCH_SIZE),
                                                      subnet_kwargs=dict(dropout=0.1))
     network_name = 'ConsistencyModel_SetTransformer'
 elif job_array_id % 4 == 3:
     BATCH_SIZE = 64
     EPOCHS = 100
-    summary_network = bf.networks.SetTransformer(summary_dim=len(param_names) * 2)
+    summary_network = bf.networks.SetTransformer(summary_dim=len(param_names) * 2, num_inducing_points=64)
     inference_network = bf.networks.CouplingFlow(depth=7, transform='spline',
                                                  subnet_kwargs=dict(dropout=0.1))
     network_name = 'CouplingFlow_SetTransformer'

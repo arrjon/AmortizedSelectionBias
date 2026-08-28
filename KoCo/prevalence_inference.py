@@ -455,7 +455,9 @@ for e_index in range(1, 6):
     if 'real' in mrp_cache:
         mrp_fits_real.append(mrp_cache['real'][e_index - 1])
     else:
+        t0 = time.perf_counter()
         mrp_fits_real.append(fit_mrp(real_data_df, seed=e_index, iter_sampling=num_samples))
+        logging.info(f"Time for MRP: {time.perf_counter() - t0:.2f}s")
     results_real['MRP'].append(mrp_fits_real[-1]['prevalence'])
     logging.info(f"MRP median: {np.median(results_real['MRP'][-1]) * 100:.2f}%")
 
