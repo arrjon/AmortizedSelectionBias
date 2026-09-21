@@ -17,6 +17,7 @@ import bayesflow as bf
 
 from KoCo.prevalence_simulate import simulate_population, full_population_size
 from KoCo.mrp_baseline import fit_mrp
+from helper_c2st import train_c2st, score_c2st
 
 try:
     BASE = Path(__file__).resolve().parent
@@ -75,8 +76,8 @@ def simulator(epoch_index):
     )
 
 simulator_bf = bf.make_simulator([hyperparameters, simulator])
-#%%
 
+#%%
 data_path = BASE / 'data'
 n_val_data = 1000
 n_train_data = 10000
@@ -147,6 +148,7 @@ workflow = bf.BasicWorkflow(
     summary_network=summary_network,
     inference_network=inference_network,
 )
+
 # %%
 class HistoryClass(object):
     def __init__(self, history_to_save):
@@ -198,52 +200,14 @@ for diagnostic, fig_d in diagnostics.items():
     plt.close(fig_d)
 
 #%%
-def train_c2st(estimates, targets, n_random=10):
-    """C2ST classifier on (posterior draw, data embedding) pairs plus label-permuted classifiers
-    for the permutation p-value."""
-    mean, std = np.mean(estimates, axis=0), np.std(estimates, axis=0)
-    estimates = (estimates - mean) / std
-    targets = (targets - mean) / std
-    results = bf.diagnostics.metrics.classifier_two_sample_test(
-        estimates=estimates, targets=targets, return_metric_only=False, batch_size=BATCH_SIZE, standardize=False
-    )
-
-    random_results = []
-    full_set = np.concatenate((estimates, targets), axis=0)
-    for _ in range(n_random):
-        np.random.shuffle(full_set)  # permute all labels to create random classifier
-        _random_results = bf.diagnostics.metrics.classifier_two_sample_test(
-            estimates=full_set[:estimates.shape[0]], targets=full_set[estimates.shape[0]:],
-            return_metric_only=False, batch_size=BATCH_SIZE, cross_validation_splits=0,
-            validation_split=0.1, standardize=False
-        )
-        random_results.append(_random_results)
-    return results, random_results, mean, std
-
-
-def score_c2st(estimates_real, c2st):
-    """Apply a trained C2ST to real-data (posterior draw, embedding) pairs.
-    Returns per-draw scores, the test statistic and the permutation p-value."""
-    results, random_results, mean, std = c2st
-    estimates_real = (estimates_real - mean) / std
-    scores = np.array([c.predict(estimates_real).flatten() for c in results['classifiers']])
-    scores = np.maximum(scores, 1 - scores)
-    score = np.mean(scores, axis=0)
-    statistic = np.mean((score - 0.5) ** 2)
-    scores_random = np.array([c['classifiers'][0].predict(estimates_real).flatten() for c in random_results])
-    scores_random = np.maximum(scores_random, 1 - scores_random)
-    statistic_random = np.mean((scores_random - 0.5) ** 2, axis=-1)
-    return score, statistic, np.mean(statistic_random > statistic)
-
-
 logging.info('Prepare C2ST classifier (NPE)')
 embedded_data = workflow.approximator.summarize(validation_data)
 targets = np.concatenate((validation_data['prevalence_true'], embedded_data), axis=-1)
 posterior_samples_test = workflow.sample(conditions=validation_data, num_samples=1,
                                          batch_size=BATCH_SIZE // 2)
 estimates = np.concatenate((posterior_samples_test['prevalence_true'][:, 0], embedded_data), axis=-1)
-c2st_npe = train_c2st(estimates, targets)
-
+c2st_npe = train_c2st(estimates, targets, batch_size=BATCH_SIZE)
+logging.info(f'NPE C2ST Accuracy on valid data: {c2st_npe[0]["score"]}')
 
 mrp_file = BASE / 'models' / 'mrp_results.pkl'
 if mrp_file.exists():
@@ -273,7 +237,8 @@ if 'valid' not in mrp_cache:
         pickle.dump(mrp_cache, f)
 mrp_valid_draw = np.array([p[np.random.randint(len(p))] for p in mrp_cache['valid']])[:, None]
 estimates_mrp = np.concatenate((mrp_valid_draw, embedded_data), axis=-1)
-c2st_mrp = train_c2st(estimates_mrp, targets)  # own classifier, same NPE embedding of the data
+c2st_mrp = train_c2st(estimates_mrp, targets, batch_size=BATCH_SIZE)  # own classifier, same NPE embedding of the data
+logging.info(f'MRP C2ST Accuracy on valid data: {c2st_mrp[0]["score"]}')
 
 #%%
 def error(a, b):
@@ -459,25 +424,23 @@ for e_index in range(1, 6):
         mrp_fits_real.append(fit_mrp(real_data_df, seed=e_index, iter_sampling=num_samples))
         logging.info(f"Time for MRP: {time.perf_counter() - t0:.2f}s")
     results_real['MRP'].append(mrp_fits_real[-1]['prevalence'])
-    logging.info(f"MRP median: {np.median(results_real['MRP'][-1]) * 100:.2f}%")
 
     # use C2ST to evaluate posterior samples quality: NPE and MRP, each with its own classifier
     embedded_real_data = workflow.approximator.summarize({'data': real_data[None]})
     embedded_real_data = np.repeat(embedded_real_data, repeats=num_samples, axis=0)
     estimates_real = np.concatenate((posterior_samples_real['prevalence_true'][0], embedded_real_data), axis=-1)
-    c2st_score, test_statistic, p_val = score_c2st(estimates_real, c2st_npe)
-    results_real['C2ST'].append(c2st_score)
+    c2st_score_mean, c2st_score_per_sample, test_statistic, p_val = score_c2st(estimates_real, c2st_npe)
+    results_real['C2ST'].append((c2st_score_mean, c2st_score_per_sample))
     c2st_result_real_random.append((test_statistic, p_val))
-    logging.info(f'NPE C2ST Accuracy: {np.mean(c2st_score)}, Statistic: {test_statistic}, p-value: {p_val}')
+    logging.info(f'NPE C2ST Accuracy: {c2st_score_mean}, Statistic: {test_statistic}, p-value: {p_val}')
 
     mrp_draws = np.random.default_rng(e_index).choice(mrp_fits_real[-1]['prevalence'], size=num_samples,
                                                       replace=False)
     estimates_real_mrp = np.concatenate((mrp_draws[:, None], embedded_real_data), axis=-1)
-    c2st_score_mrp, test_statistic_mrp, p_val_mrp = score_c2st(estimates_real_mrp, c2st_mrp)
-    results_real['C2ST_MRP'].append(c2st_score_mrp)
+    c2st_score_mean_mrp, c2st_score_per_sample_mrp, test_statistic_mrp, p_val_mrp = score_c2st(estimates_real_mrp, c2st_mrp)
+    results_real['C2ST_MRP'].append((c2st_score_mean_mrp, c2st_score_per_sample_mrp))
     c2st_result_real_random_mrp.append((test_statistic_mrp, p_val_mrp))
-    logging.info(f'MRP C2ST Accuracy: {np.mean(c2st_score_mrp)}, Statistic: {test_statistic_mrp}, '
-                 f'p-value: {p_val_mrp}')
+    logging.info(f'MRP C2ST Accuracy: {c2st_score_mean_mrp}, Statistic: {test_statistic_mrp}, p-value: {p_val_mrp}')
 
 if 'real' not in mrp_cache:
     mrp_cache['real'] = mrp_fits_real
@@ -548,7 +511,7 @@ def plot_c2st_histograms(posteriors, c2st_scores, c2st_tests, save_path, bins=20
 
         # compute mean color per bin
         bin_color = np.array([
-            np.mean(c2st_scores[epoch_idx-1][bin_idx == i]) if np.any(bin_idx == i) else 0
+            np.mean(c2st_scores[epoch_idx-1][1][bin_idx == i]) if np.any(bin_idx == i) else 0
             for i in range(bins)
         ])
 
@@ -571,7 +534,7 @@ def plot_c2st_histograms(posteriors, c2st_scores, c2st_tests, save_path, bins=20
         ax[epoch_idx-1].spines['top'].set_visible(False)
         ax[epoch_idx-1].spines['right'].set_visible(False)
         # plot scores
-        m_score = np.mean(c2st_scores[epoch_idx-1])
+        m_score = c2st_scores[epoch_idx-1][0]
         ax[epoch_idx-1].text(
             0.95, 0.95,
             f"Mean C2ST={m_score:.2f}\np-value={c2st_tests[epoch_idx-1][1]:.2f}",
