@@ -1,4 +1,5 @@
 # %%
+# uv pip install "git+https://github.com/bayesflow-org/bayesflow.git@4e7b425"
 # install dependencies
 # import install_requirements
 
@@ -26,13 +27,14 @@ from bayesflow.utils import filter_kwargs
 from PedCov.stan import get_stan_posterior
 from PedCov.helper_functions import (list_of_dicts_to_dict_of_lists, normalize_household_data,
                                      sampling_parameter_cis_comparison, plot_first_positive_age_group_counts)
+from helper_c2st import train_c2st, score_c2st
 
 
 try:
     BASE = Path(__file__).resolve().parent
 except NameError:
     BASE = Path('/Users/jonas.arruda/PyCharm Projects/AmortizedSelectionBias/PedCov')
-job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 1))
+job_array_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 2))
 n_procs = int(os.environ.get('SLURM_CPUS_PER_TASK', 10))
 partition = os.environ.get('SLURM_JOB_PARTITION', 'local')
 batch_size = 64
@@ -551,38 +553,45 @@ targets = np.concatenate((target_params, embedded_data), axis=-1)
 posterior_samples_test = workflow.sample(conditions=validation_data, num_samples=1, batch_size=batch_size)
 posterior_samples_test = np.concatenate([posterior_samples_test[k][:, 0]  for k in param_names], axis=-1)
 estimates = np.concatenate((posterior_samples_test, embedded_data), axis=-1)
-estimates_mean = np.mean(estimates, axis=0)
-estimates_std = np.std(estimates, axis=0)
-estimates = (estimates - estimates_mean) / estimates_std
-targets = (targets - estimates_mean) / estimates_std
+
 logging.info("Train C2ST classifier")
-c2st_results = bf.diagnostics.metrics.classifier_two_sample_test(
-    estimates=estimates,
-    targets=targets,
-    return_metric_only=False,
-    batch_size=batch_size,
-    standardize=False
-)
-logging.info(f'C2ST Accuracy: {c2st_results["score"]}')
+c2st_npe = train_c2st(estimates, targets, batch_size=batch_size)
+logging.info(f'NPE C2ST Accuracy on valid data: {c2st_npe[0]["score"]}')
 
-logging.info('Train C2ST random classifiers')
-c2st_results_random = []
-full_set = np.concatenate((estimates, targets), axis=0)
-for _ in range(10):
-    # permute all labels to create random classifier
-    np.random.shuffle(full_set)  # shuffles the array along the first axis of a multi-dimensional array
-    estimates_random = full_set[:estimates.shape[0]]
-    targets_random = full_set[estimates.shape[0]:]
+#%% C2ST classifier for the MCMC posterior, only on random selection procedure data
+logging.info('Prepare C2ST classifier for MCMC')
+embedded_data_mcmc = []
+for i in range(0, len(validation_data_random['sim_data']), batch_size):
+    batch = {name: validation_data_random[name][i:i + batch_size] for name in validation_data_random}
+    embedded_data_batch = workflow.approximator.summarize(batch)
+    embedded_data_mcmc.append(embedded_data_batch)
+embedded_data_mcmc = np.vstack(embedded_data_mcmc)
+target_params = np.concatenate([validation_data_random[k] for k in param_names], axis=-1)
 
-    c2st_results_random.append(bf.diagnostics.metrics.classifier_two_sample_test(
-        estimates=estimates_random,
-        targets=targets_random,
-        return_metric_only=False,
-        batch_size=batch_size,
-        cross_validation_splits=0,
-        validation_split=0.1,
-        standardize=False
-    ))
+# Same NPE embedding of the data, but the parameter draw comes from the Stan posterior
+logging.info('Prepare C2ST classifier (MCMC)')
+n_repeats = 3
+_rng_c2st = np.random.default_rng(0)
+_n_valid = validation_data_random['sim_data'].shape[0]
+_rows = np.arange(_n_valid)
+stan_draws = {
+    p: np.asarray(validation_data_random[f'stan_{p}']).reshape(_n_valid, -1)
+    for p in param_names
+}
+_n_draws = stan_draws[list(stan_draws.keys())[0]].shape[1]
+
+mcmc_draw = np.concatenate([
+    # one index per validation dataset, shared across parameters -> joint posterior sample
+    np.stack([stan_draws[p][_rows, idx] for p in param_names], axis=-1)
+    for idx in (_rng_c2st.integers(_n_draws, size=_n_valid) for _ in range(n_repeats))
+], axis=0)
+
+embedded_rep = np.tile(embedded_data_mcmc, (n_repeats, 1))
+targets_mcmc = np.concatenate((np.tile(target_params, (n_repeats, 1)), embedded_rep), axis=-1)
+estimates_mcmc = np.concatenate((mcmc_draw, embedded_rep), axis=-1)
+
+c2st_mcmc = train_c2st(estimates_mcmc, targets_mcmc, batch_size=batch_size)
+logging.info(f'MCMC C2ST Accuracy on valid data: {c2st_mcmc[0]["score"]}')
 
 # %% Simulation Study on Validation Data
 for vd in [validation_data_random, validation_data_pedcov, validation_data_adultcov]:
@@ -710,7 +719,6 @@ plot_first_positive_age_group_counts(
 )
 
 #%% NPE inference on real data
-c2st_result_real_random = []
 for variant in variants:
     posterior_file = BASE / 'models' / f'{variant}_{network_name}_npe_posterior_samples.pkl'
     if os.path.exists(posterior_file):
@@ -725,6 +733,10 @@ for variant in variants:
         prep_dict.pop('stan_posterior_samples')  # remove stan samples for conditions, adapter cannot handle them
         if 'posterior_samples' in prep_dict.keys():
             prep_dict.pop('posterior_samples')
+        if 'C2ST' in prep_dict.keys():
+            prep_dict.pop('C2ST')
+        if 'C2ST_MCMC' in prep_dict.keys():
+            prep_dict.pop('C2ST_MCMC')
         posterior_samples_real = workflow.sample(
             conditions=prep_dict, num_samples=num_samples, batch_size=batch_size
         )
@@ -734,21 +746,21 @@ for variant in variants:
         embedded_real_data = np.repeat(embedded_real_data, repeats=num_samples, axis=0)
         posterior_samples_test = np.concatenate([posterior_samples_real[k][0] for k in param_names], axis=-1)
         estimates_real = np.concatenate((posterior_samples_test, embedded_real_data), axis=-1)
-        estimates_real = (estimates_real - estimates_mean) / estimates_std
-        scores = np.array([c.predict(estimates_real).flatten() for c in c2st_results['classifiers']])
-        scores = np.maximum(scores, 1 - scores)
-        c2st_score = np.mean(scores, axis=0)
-        test_statistic = np.mean((c2st_score - 0.5) ** 2)
-        real_data_results[variant]['C2ST'] = c2st_score
-        logging.info(f'Real Data {variant} C2ST Accuracy: {np.mean(real_data_results[variant]["C2ST"])}')
+        c2st_score_mean, c2st_score_per_sample, test_statistic, p_val = score_c2st(estimates_real, c2st_npe)
+        real_data_results[variant]['C2ST'] = (c2st_score_mean, c2st_score_per_sample, test_statistic, p_val)
+        logging.info(f'Real Data {variant} C2ST Accuracy: {c2st_score_mean}, '
+                     f'Statistic: {test_statistic}, p-value: {p_val}')
 
-        # apply random classifiers
-        scores_random = np.array([c['classifiers'][0].predict(estimates_real).flatten() for c in c2st_results_random])
-        scores_random = np.maximum(scores_random, 1 - scores_random)
-        test_statistic_random = np.mean((scores_random - 0.5) ** 2, axis=-1)
-        p_val = np.mean(test_statistic_random > test_statistic)
-        c2st_result_real_random.append((test_statistic, p_val))
-        logging.info(f'C2ST Statistic: {test_statistic}, p-value: {p_val}')
+        stan_real = np.stack([
+            np.asarray(real_data_results[variant]['stan_posterior_samples'][k]).reshape(-1)[:num_samples]
+            for k in param_names], axis=-1)
+        estimates_real_mcmc = np.concatenate((stan_real, embedded_real_data[:len(stan_real)]), axis=-1)
+        # subsample, mcmc samples are correlated
+        estimates_real_mcmc = estimates_real_mcmc[::5]
+        c2st_score_mean_mcmc, c2st_score_mcmc, test_statistic_mcmc, p_val_mcmc = score_c2st(estimates_real_mcmc, c2st_mcmc)
+        real_data_results[variant]['C2ST_MCMC'] = (c2st_score_mean_mcmc, c2st_score_mcmc, test_statistic_mcmc, p_val_mcmc)
+        logging.info(f'Real Data {variant} C2ST Accuracy (MCMC): {c2st_score_mean_mcmc}, '
+                     f'Statistic: {test_statistic_mcmc}, p-value: {p_val_mcmc}')
 
         del prep_dict
         # save samples
@@ -797,33 +809,91 @@ if len(variants) == 2:
     fig.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_real_CIs.pdf', bbox_inches='tight')
     plt.show()
 
+#%% Comparison
+# Signed difference of the posterior medians (NPE - MCMC) on the real data, next to the MCMC
+# calibration error on the validation data under the same (child) selection procedure as the real data.
+comparison_rows = []
+for variant in variants:
+    v_mask = np.asarray(validation_data_pedcov['variant']) == variant
+    mcmc_calibration = bf.diagnostics.metrics.calibration_error(
+        estimates={p: np.asarray(validation_data_pedcov[f'stan_{p}'])[v_mask] for p in param_names},
+        targets={p: np.asarray(validation_data_pedcov[p])[v_mask] for p in param_names},
+        variable_keys=list(param_names),
+    )
+    for p_i, p_name in enumerate(param_names):
+        npe_median = np.median(real_data_results[variant]['posterior_samples'][p_name])
+        mcmc_median = np.median(real_data_results[variant]['stan_posterior_samples'][p_name])
+        comparison_rows.append({
+            'parameter': p_name,
+            'variant': variant,
+            'npe_median': npe_median,
+            'mcmc_median': mcmc_median,
+            'median_diff': npe_median - mcmc_median,
+            'mcmc_calibration_error': mcmc_calibration['values'][p_i],
+        })
+
+comparison_table = (pd.DataFrame(comparison_rows)
+                    .pivot(index='parameter', columns='variant')
+                    .reindex(list(param_names)))
+comparison_table.to_csv(BASE / 'plots' / f'{scenario_name}_{network_name}_comparison_table.csv')
+logging.info(f'Median differences and MCMC calibration error:\n'
+             f'{comparison_table.to_string(float_format=lambda x: f"{x:.3f}")}')
+print(comparison_table.to_latex(float_format='%.3f'))
+
+# visualise the same numbers: median discrepancy next to how well calibrated MCMC is
+fig, axis = plt.subplots(ncols=2, sharey=True, figsize=(8, 5), layout='constrained')
+y = np.arange(len(param_names))
+bar_height = 0.38
+for v_i, variant in enumerate(variants):
+    for a_i, column in enumerate(['median_diff', 'mcmc_calibration_error']):
+        axis[a_i].barh(y + (v_i - 0.5) * bar_height, comparison_table[(column, variant)],
+                       height=bar_height, color=method_colors[v_i], label=rf'Variant {variant.capitalize()}')
+axis[0].axvline(0, color='black', lw=0.8)
+axis[0].set_yticks(y, list(param_names.values()))
+axis[0].invert_yaxis()
+axis[0].set_xlabel('Median difference (NPE - MCMC)')
+axis[1].set_xlabel('MCMC calibration error')
+for ax in axis:
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+handles, labels = axis[0].get_legend_handles_labels()  # one bar per variant on this axis
+fig.legend(handles=handles, labels=labels, loc='lower center',
+           ncol=len(variants), frameon=False, fontsize=12, bbox_to_anchor=(0.5, -0.06))
+fig.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_comparison_table.pdf', bbox_inches='tight')
+plt.show()
+
 #%% apply C2ST
-if len(c2st_result_real_random) > 0:
-    logging.info("Plotting C2ST histograms for real data")
-    bins = 20
+methods_c2st = {'posterior_samples': ('C2ST', 'Bias-aware NPE'),
+                'stan_posterior_samples': ('C2ST_MCMC', 'MCMC')}
+
+
+def plot_c2st_histograms(variant, save_path, bins=20):
+    """Posterior histograms coloured by the C2ST score of each draw, one column per method."""
     norm = mcolors.Normalize(vmin=0.5, vmax=1.0)
     cmap = mcolors.LinearSegmentedColormap.from_list(
         "Reds_trunc",
         plt.cm.Reds(np.linspace(0.1, 1.0, 256))
     )
-    fig, ax = plt.subplots(nrows=len(param_names), ncols=len(variants), sharey='row', sharex='row', figsize=(10, 12),
-                           layout='constrained')
+    fig, ax = plt.subplots(nrows=len(param_names), ncols=len(methods_c2st), sharey='row', sharex='row',
+                           figsize=(8, 12), layout='constrained')
     for p_i, (p_name, p_name_pretty) in enumerate(param_names.items()):
-        for v_i, variant in enumerate(variants):
+        for m_i, (samples_key, (c2st_key, method_pretty)) in enumerate(methods_c2st.items()):
             # compute bin assignment
-            x = real_data_results[variant]['posterior_samples'][p_name].flatten()
+            x = np.asarray(real_data_results[variant][samples_key][p_name]).flatten()
+            scores = np.asarray(real_data_results[variant][c2st_key][1]).flatten()
+            x = x[:len(scores)]
             counts, bin_edges = np.histogram(x, bins=bins, density=True)
             bin_idx = np.digitize(x, bin_edges) - 1
 
             # compute mean color per bin
             bin_color = np.array([
-                np.mean(real_data_results[variant]['C2ST'][bin_idx == i]) if np.any(bin_idx == i) else 0
+                np.mean(scores[bin_idx == i]) if np.any(bin_idx == i) else 0
                 for i in range(bins)
             ])
 
             # plot histogram manually
             for i in range(bins):
-                ax[p_i, v_i].bar(
+                ax[p_i, m_i].bar(
                     bin_edges[i],
                     counts[i],
                     width=bin_edges[i + 1] - bin_edges[i],
@@ -832,29 +902,35 @@ if len(c2st_result_real_random) > 0:
                     edgecolor=cmap(norm(bin_color[i]))
                 )
 
-            ax[p_i, v_i].set_xlabel(p_name_pretty)
-            if v_i == 0:
-                ax[p_i, v_i].set_ylabel("Density")
+            ax[p_i, m_i].set_xlabel(p_name_pretty)
+            if m_i == 0:
+                ax[p_i, m_i].set_ylabel("Density")
             if p_i == 0:
-                ax[p_i, v_i].set_title(rf"Variant {variant}")
-                m_score = np.mean(real_data_results[variant]['C2ST'])
-                ax[p_i, v_i].text(
+                ax[p_i, m_i].set_title(method_pretty)
+                ax[p_i, m_i].text(
                     0.95, 0.95,
-                    f"Mean C2ST={m_score:.2f}\np-value={c2st_result_real_random[v_i][1]:.2f}",
+                    f"Mean C2ST={real_data_results[variant][c2st_key][0]:.2f}\np-value={real_data_results[variant][c2st_key][3]:.2f}",
                     horizontalalignment='right',
                     verticalalignment='top',
-                    transform=ax[p_i, v_i].transAxes,
+                    transform=ax[p_i, m_i].transAxes,
                     fontsize=9,
                 )
             # remove top and right spines
-            ax[p_i, v_i].spines['top'].set_visible(False)
-            ax[p_i, v_i].spines['right'].set_visible(False)
+            ax[p_i, m_i].spines['top'].set_visible(False)
+            ax[p_i, m_i].spines['right'].set_visible(False)
 
     # add colorbar
     sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
     sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax.ravel().tolist(), label="C2ST score (mean per bin)", fraction=0.02)
-    fig.savefig(BASE / 'plots' / f'{scenario_name}_{network_name}_real_c2st_histograms.pdf', bbox_inches='tight')
+    fig.colorbar(sm, ax=ax.ravel().tolist(), label="C2ST score (mean per bin)", fraction=0.02)
+    fig.suptitle(rf"Variant {variant.capitalize()}")
+    fig.savefig(save_path, bbox_inches='tight')
     plt.show()
+
+
+for variant in variants:
+    logging.info(f"Plotting C2ST histograms for real data ({variant})")
+    plot_c2st_histograms(variant,
+                         BASE / 'plots' / f'{scenario_name}_{network_name}_real_c2st_histograms_{variant}.pdf')
 
 logging.info("Done!")
