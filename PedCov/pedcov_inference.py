@@ -877,22 +877,28 @@ def plot_c2st_histograms(variant, save_path, bins=20):
     fig, ax = plt.subplots(nrows=len(param_names), ncols=len(methods_c2st), sharey='row', sharex='row',
                            figsize=(8, 12), layout='constrained')
     for p_i, (p_name, p_name_pretty) in enumerate(param_names.items()):
-        for m_i, (samples_key, (c2st_key, method_pretty)) in enumerate(methods_c2st.items()):
-            # compute bin assignment
+        # bin edges are shared by the methods of a row (same parameter, same x-axis), but not across rows
+        row_draws = {}
+        for samples_key, (c2st_key, _) in methods_c2st.items():
             x = np.asarray(real_data_results[variant][samples_key][p_name]).flatten()
             scores = np.asarray(real_data_results[variant][c2st_key][1]).flatten()
-            x = x[:len(scores)]
-            counts, bin_edges = np.histogram(x, bins=bins, density=True)
-            bin_idx = np.digitize(x, bin_edges) - 1
+            n = min(len(x), len(scores))
+            row_draws[samples_key] = (x[:n], scores[:n])
+        bin_edges = np.histogram_bin_edges(np.concatenate([x for x, _ in row_draws.values()]), bins=bins)
+
+        for m_i, (samples_key, (c2st_key, method_pretty)) in enumerate(methods_c2st.items()):
+            x, scores = row_draws[samples_key]
+            counts, _ = np.histogram(x, bins=bin_edges, density=True)
+            bin_idx = np.clip(np.digitize(x, bin_edges) - 1, 0, len(counts) - 1)
 
             # compute mean color per bin
             bin_color = np.array([
                 np.mean(scores[bin_idx == i]) if np.any(bin_idx == i) else 0
-                for i in range(bins)
+                for i in range(len(counts))
             ])
 
             # plot histogram manually
-            for i in range(bins):
+            for i in range(len(counts)):
                 ax[p_i, m_i].bar(
                     bin_edges[i],
                     counts[i],

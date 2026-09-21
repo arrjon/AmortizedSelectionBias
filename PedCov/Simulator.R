@@ -363,7 +363,7 @@ compute_foi <- function(data=NULL, ind=NULL, susc=NULL, t=NULL, variant=NULL, ge
     
     # Susceptibility of ind depending on age and symptoms
     if(data$age[data$id_patient==ix]==1 & data$infect_status[data$id_patient==ix]==1) proba_inf_ix_ind <- proba_inf_ix_ind *mu_inf['SC'] # sympt children
-    else if(data$age[data$id_patient==ix]==0 & data$infect_status[data$id_patient==ix]==1) proba_inf_ix_ind <- proba_inf_ix_ind *mu_inf['SI'] # sympt adults
+    else if(data$age[data$id_patient==ix]==0 & data$infect_status[data$id_patient==ix]==1) proba_inf_ix_ind <- proba_inf_ix_ind *mu_inf['SI'] # sympt infants
     else if(data$age[data$id_patient==ix]==0 & data$infect_status[data$id_patient==ix]==2) proba_inf_ix_ind <- proba_inf_ix_ind *mu_inf['AI'] # asympt infants
     else if(data$age[data$id_patient==ix]==1 & data$infect_status[data$id_patient==ix]==2) proba_inf_ix_ind <- proba_inf_ix_ind *mu_inf['AC'] # asympt children
     else if(data$age[data$id_patient==ix]==2 & data$infect_status[data$id_patient==ix]==2) proba_inf_ix_ind <- proba_inf_ix_ind *mu_inf['AA'] # asympt adults
@@ -375,7 +375,7 @@ compute_foi <- function(data=NULL, ind=NULL, susc=NULL, t=NULL, variant=NULL, ge
   
   # Susceptibility of ind depending on age
   if(data$age[data$id_patient==ind]==1) beta_foyer <- beta_foyer *mu_susc['C'] # children
-  else if(data$age[data$id_patient==ind]==0) beta_foyer <- beta_foyer *mu_susc['I'] # adults
+  else if(data$age[data$id_patient==ind]==0) beta_foyer <- beta_foyer *mu_susc['I'] # infants
   # Susceptibility of ind depending on protection
   if(data$protected[data$id_patient==ind]==1) beta_foyer <- beta_foyer *mu_protect['acq']
   

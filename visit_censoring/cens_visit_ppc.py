@@ -1,8 +1,7 @@
 """Posterior predictive checks for the Framingham visit-censoring example.
 
-Re-simulates the study from posterior draws each through the observation process that method assumed
-(CensVisit vs. Full, the latter capped at 5 years as in training). As a third method the
-frequentist spline illness-death model of Binder et al. (2019) enters as a plug-in
+Re-simulates the study from posterior draws each through the observation process that method assumed.
+As a third method the frequentist spline illness-death model of Binder et al. (2019) enters as a plug-in
 predictive, where estimation uncertainty is propagated by perturbing each baseline
 cumulative hazard per replicate with the published confidence band.
 
@@ -17,6 +16,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy.stats import gaussian_kde
 
 import rpy2.robjects as ro
 from rpy2.robjects import pandas2ri
@@ -211,14 +211,19 @@ def main():
         for c, e in enumerate(epochs):
             ax = axes[r, c]
             all_vals = np.concatenate([sim_stats[m][e][stat] for m in methods] + [[observed[e][stat]]])
-            bins = np.linspace(all_vals.min(), all_vals.max(), 25)
+            pad = 0.05 * (all_vals.max() - all_vals.min())
+            grid = np.linspace(all_vals.min() - pad, all_vals.max() + pad, 200)
             for label, (_, color, _scheme) in methods.items():
-                ax.hist(sim_stats[label][e][stat], bins=bins, color=color, alpha=0.55,
-                        density=True, label=label)
+                vals = sim_stats[label][e][stat]
+                if vals.std() == 0:  # identical replicates, the kde is singular
+                    ax.axvline(vals[0], color=color, alpha=0.55, label=label)
+                    continue
+                ax.fill_between(grid, gaussian_kde(vals)(grid), color=color, alpha=0.55,
+                                lw=0, label=label)
             ax.axvline(observed[e][stat], color='black', lw=1.5, label='Observed')
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
-            ax.set_yticks([])
+            ax.set_ylim(bottom=0)  # density axis starts at 0, the kdes sit on the x-axis
             ax.tick_params(axis='x', labelsize=10)
             if r == 0:
                 ax.set_title(f'Epoch {c + 1}', fontsize=14)
