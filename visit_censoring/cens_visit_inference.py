@@ -18,6 +18,7 @@ import bayesflow as bf
 
 from visit_censoring.cens_visit_plotting import plot_params, plot_cumhaz, colors, plot_params_error, plot_hazard_nrmse, plot_data_summaries
 from visit_censoring.cens_visit_helper import extract_batches_to_dict, compute_gamma_params
+from helper_c2st import train_c2st, score_c2st
 
 try:
     BASE = Path(__file__).resolve().parent
@@ -362,46 +363,11 @@ posterior_samples_test = workflow.sample(conditions=validation_data, num_samples
                                          batch_size=BATCH_SIZE // 2)
 posterior_samples_test = np.concatenate([posterior_samples_test[k][:, 0]  for k in param_names], axis=-1)
 estimates = np.concatenate((posterior_samples_test, embedded_data), axis=-1)
-estimates_mean = np.mean(estimates, axis=0)
-estimates_std = np.std(estimates, axis=0)
-estimates = (estimates - estimates_mean) / estimates_std
-targets = (targets - estimates_mean) / estimates_std
 
 #%%
-logging.info('Train C2ST classifier')
-c2st_results = bf.diagnostics.metrics.classifier_two_sample_test(
-    estimates=estimates,
-    targets=targets,
-    return_metric_only=False,
-    batch_size=BATCH_SIZE,
-    standardize=False
-)
-logging.info(f'C2ST Accuracy: {c2st_results["score"]}')
-
-# Coupling Flow: 0.66
-# Flow Matching: 0.69
-# Diffusion Model: 0.65
-# Consistency Model: 0.56 (full: 0.57)
-
-logging.info('Train C2ST random classifiers')
-c2st_results_random = []
-full_set = np.concatenate((estimates, targets), axis=0)
-for _ in range(10):
-    # permute all labels to create random classifier
-    np.random.shuffle(full_set)
-    estimates_random = full_set[:estimates.shape[0]]
-    targets_random = full_set[estimates.shape[0]:]
-
-    c2st_results_random.append(bf.diagnostics.metrics.classifier_two_sample_test(
-        estimates=estimates_random,
-        targets=targets_random,
-        return_metric_only=False,
-        batch_size=BATCH_SIZE,
-        cross_validation_splits=0,
-        validation_split=0.1,
-        standardize=False
-    ))
-
+logging.info('Train C2ST classifiers')
+c2st_npe = train_c2st(estimates, targets, batch_size=BATCH_SIZE)
+logging.info(f'NPE C2ST Accuracy on valid data: {c2st_npe[0]["score"]}')
 
 # %%
 # read files
@@ -508,26 +474,14 @@ embedded_real_data = workflow.approximator.summarize(real_data_dict)
 embedded_real_data = np.repeat(embedded_real_data[:, None], repeats=1000, axis=1)
 for i in range(len(framingham_file_names)):
     logging.info(f'Epoch {i+1} C2ST evaluation...')
-
     posterior_samples_test = np.concatenate([real_posterior_samples[k][i] for k in param_names], axis=-1)
     estimates_real = np.concatenate((posterior_samples_test, embedded_real_data[i]), axis=-1)
-    estimates_real = (estimates_real - estimates_mean) / estimates_std
-    scores = np.array([c.predict(estimates_real).flatten() for c in c2st_results['classifiers']])
-    scores = np.maximum(scores, 1 - scores)
-    c2st_score = np.mean(scores, axis=0)
-    test_statistic = np.mean((c2st_score - 0.5) ** 2)
-    c2st_result_real.append(c2st_score)
-    logging.info(f'C2ST Accuracy: {np.mean(c2st_result_real[-1])}')
-
-    # apply random classifiers
-    scores_random = np.array([c['classifiers'][0].predict(estimates_real).flatten() for c in c2st_results_random])
-    scores_random = np.maximum(scores_random, 1 - scores_random)
-    test_statistic_random = np.mean((scores_random - 0.5)**2, axis=-1)
-    p_val = np.mean(test_statistic_random > test_statistic)
-    c2st_result_real_random.append((test_statistic, p_val))
-    logging.info(f'C2ST Statistic: {test_statistic}, p-value: {p_val}')
+    c2st_score_mean, c2st_score_per_sample, test_statistic, p_val = score_c2st(estimates_real, c2st_npe)
+    c2st_result_real.append((c2st_score_mean, c2st_score_per_sample, p_val))
+    logging.info(f'C2ST Accuracy: {c2st_score_mean}, Statistic: {test_statistic}, p-value: {p_val}')
 
 #%%
+# plot C2ST
 bins = 20
 norm = mcolors.Normalize(vmin=0.5, vmax=1.0)
 cmap = mcolors.LinearSegmentedColormap.from_list(
@@ -555,7 +509,7 @@ for epoch_idx in range(4):
 
     # compute mean color per bin
     bin_color = np.array([
-        np.mean(c2st_result_real[epoch_idx][bin_idx == i]) if np.any(bin_idx == i) else 0
+        np.mean(c2st_result_real[epoch_idx][1][bin_idx == i]) if np.any(bin_idx == i) else 0
         for i in range(bins)
     ])
 
@@ -572,10 +526,10 @@ for epoch_idx in range(4):
 
     if epoch_idx == 0:
         ax[epoch_idx].set_ylabel(f"Density of {param_names_pretty[0]}", fontsize=15)
-    m_score = np.mean(c2st_result_real[epoch_idx])
+    m_score = c2st_result_real[epoch_idx][0]
     ax[epoch_idx].text(
         0.95, 0.95,
-        f"Mean C2ST={m_score:.2f}\np-value={c2st_result_real_random[epoch_idx][1]:.2f}",
+        f"Mean C2ST={m_score:.2f}\np-value={c2st_result_real[epoch_idx][2]:.2f}",
         horizontalalignment='right',
         verticalalignment='top',
         transform=ax[epoch_idx].transAxes,
